@@ -1,5 +1,6 @@
 import { prisma } from "./prisma";
 import { hideBin } from 'yargs/helpers';
+import { ThermoServer } from "./ThermoServer"
 import * as fs from "fs";
 import yargs from 'yargs';
 // import express from "express";
@@ -23,35 +24,16 @@ async function main() {
       .alias('h', 'help')
       .parseSync();
   
-  const initialSensorList: string[] = [];
+  const server = new ThermoServer();
+
   if (argv.config.length > 0) {
       const raw = fs.readFileSync(argv.config, "utf-8");
       const config = JSON.parse(raw);
       
     if ('simSensors' in config) {
       const simSensors = config['simSensors'] as string[];
-      console.info(`seeding initialSensorList with simSensors: [${simSensors}]`);
-      for (const simSensor of simSensors) {
-        initialSensorList.push(simSensor);
-      }
-    }
-  }
-
-  for (const sensorId of initialSensorList) {
-    const existingSensor = await prisma.sensor.findUnique({
-      where: { hardwareId: sensorId }
-    });
-
-    if ( ! existingSensor) {
-      const newSensor = await prisma.sensor.create({
-        data: {
-          hardwareId: sensorId
-        }
-      });
-      console.debug('created new sensor!');
-      console.debug(newSensor);
-    } else {
-      console.debug(`sensor '${sensorId}' already exists`);
+      console.info(`loading simSensors: [${simSensors}] ...`);
+      server.loadSimSensors(simSensors);
     }
   }
 
