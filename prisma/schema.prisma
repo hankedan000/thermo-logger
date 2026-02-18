@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Sensor {
+  id          String   @id @default(uuid())
+  hardwareId  String   @unique  // 1-wire unique ID
+  createdAt   DateTime @default(now())
+
+  readings    Reading[]
+  sessionMaps SessionSensor[]
+}
+
+model SessionSensor {
+  id          String   @id @default(uuid())
+  sessionId   String
+  sensorId    String
+  name        String   // snapshot name for THIS session
+
+  session     RecordSession @relation(fields: [sessionId], references: [id])
+  sensor      Sensor        @relation(fields: [sensorId], references: [id])
+
+  @@unique([sessionId, sensorId])
+}
+
+model RecordSession {
+  id            String   @id @default(uuid())
+  name          String?
+  startedAt     DateTime @default(now())
+  endedAt       DateTime?
+  sampleRateMs  Int
+  isActive      Boolean  @default(true)
+
+  readings      Reading[]
+  sessionMaps   SessionSensor[]
+}
+
+model Reading {
+  id          String   @id @default(uuid())
+  tempC       Float
+  timestamp   DateTime @default(now())
+
+  sessionId   String
+  sensorId    String
+
+  session     RecordSession @relation(fields: [sessionId], references: [id])
+  sensor      Sensor        @relation(fields: [sensorId], references: [id])
+
+  @@index([sessionId])
+  @@index([sensorId])
+}
