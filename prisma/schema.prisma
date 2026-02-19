@@ -11,6 +11,8 @@ model Sensor {
   id          String   @id @default(uuid())
   hardwareId  String   @unique  // 1-wire unique ID
   createdAt   DateTime @default(now())
+  isSimulated Boolean
+  currentName String
 
   readings    Reading[]
   sessionMaps SessionSensor[]
@@ -30,11 +32,10 @@ model SessionSensor {
 
 model RecordSession {
   id            String   @id @default(uuid())
-  name          String?
+  name          String
   startedAt     DateTime @default(now())
   endedAt       DateTime?
   sampleRateMs  Int
-  isActive      Boolean  @default(true)
 
   readings      Reading[]
   sessionMaps   SessionSensor[]

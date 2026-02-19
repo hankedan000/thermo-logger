@@ -1,15 +1,16 @@
 import { RecordSession, Sensor } from "./generated/prisma/client";
-import { prisma } from "./prisma";
+import { prisma } from "./db/prisma";
+import { SamplerService } from "./sampling/sampler.service";
 
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
     public lastTempC?: number;         // last reading we got
-    public isSim: boolean = false;
+    public isSimulated: boolean = false;
 }
 
 export class ThermoServer {
-    private sensorStatuses: Map<string, SensorStatus> = new Map();
-    private activeRecordSession?: RecordSession;
+    private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
+    public samplerService: SamplerService = new SamplerService(prisma);
 
     public loadSimSensors(hardwareIds: string[]): void {
         for (const hardwareId of hardwareIds) {
@@ -17,25 +18,25 @@ export class ThermoServer {
         }
     }
 
-    private loadSensor(hardwareId: string, isSim: boolean): void {
-        if (hardwareId in this.sensorStatuses) {
+    private loadSensor(hardwareId: string, isSimulated: boolean): void {
+        if (hardwareId in this.sensorStatusesByHwId) {
             console.warn(`sensor '${hardwareId}' already loaded`);
             return;
         }
 
         const status = new SensorStatus();
-        status.isSim = isSim;
-        if (isSim) {
+        status.isSimulated = isSimulated;
+        if (isSimulated) {
             status.available = true;
             status.lastTempC = 23.0;
         } else {
-            // TODO test is sensor is available and get first temp reading
+            // TODO test if sensor is available and get first temp reading
         }
-        this.getOrCreateDbSensor(hardwareId);
-        this.sensorStatuses.set(hardwareId, status);
+        this.getOrCreateDbSensor(hardwareId, isSimulated);
+        this.sensorStatusesByHwId.set(hardwareId, status);
     }
 
-    private async getOrCreateDbSensor(hardwareId: string): Promise<Sensor> {
+    private async getOrCreateDbSensor(hardwareId: string, isSimulated: boolean): Promise<Sensor> {
         // check if sensor already exists, if so return it
         const existingSensor = await prisma.sensor.findUnique({
             where: { hardwareId: hardwareId }
@@ -48,7 +49,9 @@ export class ThermoServer {
         // create a new sensor
         const newSensor = await prisma.sensor.create({
             data: {
-                hardwareId: hardwareId
+                hardwareId: hardwareId,
+                isSimulated: isSimulated,
+                currentName: hardwareId
             }
         });
         console.debug('created new sensor!');

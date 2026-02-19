@@ -1,4 +1,4 @@
-import { prisma } from "./prisma";
+import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
 import { ThermoServer } from "./ThermoServer"
 import * as fs from "fs";
