@@ -1,6 +1,6 @@
-import { prisma } from "./db/prisma";
-import { Sensor } from "./generated/prisma/client";
-import { SamplerService } from "./sampling/sampler.service";
+import { prisma } from "../db/prisma";
+import { Sensor } from "../generated/prisma/client";
+import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 
 const MAX_CLIENT_CONNECTIONS = 10;
@@ -18,13 +18,33 @@ class ThermoClient {
     }
 }
 
-export class ThermoServer {
+enum MsgType {
+    SensorUpdate = 'SensorUpdate'
+}
+
+interface ServerMsg {
+    readonly msgType: MsgType;
+}
+
+interface UI_SensorInfo {
+    hardwardId: string;
+    lastTempC: number;
+    currentName: string;
+    available: boolean;
+}
+
+class SensorUpdateMsg implements ServerMsg {
+    readonly  msgType: MsgType = MsgType.SensorUpdate;
+    sensors: UI_SensorInfo[] = [];
+}
+
+export class ThermoServer implements SamplerListener {
     public samplerService: SamplerService = new SamplerService(prisma);
     private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
     private clients: ThermoClient[] = [];
 
     constructor() {
-        this.samplerService.registerSensorSampledCallback(this.onSensorSampled);
+        this.samplerService.addListener(this);
     }
 
     public addNewClient(ws: WebSocket): boolean {
@@ -47,6 +67,40 @@ export class ThermoServer {
         }
     }
 
+    public async getUI_SensorInfos(): Promise<UI_SensorInfo[]> {
+        const infos: UI_SensorInfo[] = []
+        for (const hwId of this.sensorStatusesByHwId.keys()) {
+            const status = this.sensorStatusesByHwId.get(hwId);
+            const sensor = await prisma.sensor.findUnique({
+                where: {hardwareId: hwId}
+            });
+            if ( ! sensor || ! status) {
+                continue;
+            }
+
+            infos.push({
+                hardwardId: hwId,
+                lastTempC: status.lastTempC,
+                available: status.available,
+                currentName: sensor.currentName
+            })
+        }
+        return infos;
+    }
+
+    public onSensorSampled(sensor: Sensor, tempC: number): void {
+        const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
+        if (status) {
+            status.lastTempC = tempC;
+        }
+    }
+
+    public async onCollectionComplete(): Promise<void> {
+        const msg = new SensorUpdateMsg();
+        msg.sensors = await this.getUI_SensorInfos();
+        this.sendMsgToClients(msg);
+    }
+
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
         if (hardwareId in this.sensorStatusesByHwId) {
             console.warn(`sensor '${hardwareId}' already loaded`);
@@ -54,7 +108,6 @@ export class ThermoServer {
         }
 
         const status = new SensorStatus();
-        status.isSimulated = isSimulated;
         if (isSimulated) {
             status.available = true;
             status.lastTempC = 23.0;
@@ -99,10 +152,13 @@ export class ThermoServer {
         }
     }
 
-    private onSensorSampled(sensor: Sensor, tempC: number): void {
-        const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
-        if (status) {
-            status.lastTempC = tempC;
+    private sendMsgToClients(msg: ServerMsg) {
+        for (const client of this.clients) {
+            this.sendMsgToClient(client, msg);
         }
+    }
+
+    private sendMsgToClient(client: ThermoClient, msg: ServerMsg) {
+        client.ws.send(JSON.stringify(msg));
     }
 }

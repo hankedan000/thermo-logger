@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
-import { ThermoServer } from "./ThermoServer"
+import { ThermoServer } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
 import * as fs from "fs";
 import yargs from 'yargs';
@@ -48,9 +48,10 @@ async function main() {
   // Routes
   app.use(express.static('./public'));
 
-  // app.use("/api/sensors", sensorRoutes);
-  // app.use("/api/data", dataRoutes);
-  // app.use("/api/config", configRoutes);
+  app.get("/api/sensors", async (req, res) => {
+    const sensors = await thermoServer.getUI_SensorInfos();
+    res.json(sensors);
+  });
 
   // Handle web socket connections
   wss.on('connection', ws => {

@@ -3,8 +3,9 @@ import { PrismaClient, Sensor } from "../generated/prisma/client";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
-export interface SensorSampledCallback {
-  (sensor: Sensor, tempC: number): void;
+export interface SamplerListener {
+  onSensorSampled(sensor: Sensor, tempC: number): void;
+  onCollectionComplete(): void;
 }
 
 export class SamplerService {
@@ -12,14 +13,14 @@ export class SamplerService {
   private allSensors: Sensor[] = [];
   private sensorsToRecord: Sensor[] = [];
   private activeSessionId: string | undefined;
-  private callbacks: SensorSampledCallback[] = [];
+  private listeners: SamplerListener[] = [];
 
   constructor(private prisma: PrismaClient) {
     this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
   }
 
-  public registerSensorSampledCallback(cb: SensorSampledCallback): void {
-    this.callbacks.push(cb);
+  public addListener(newListener: SamplerListener): void {
+    this.listeners.push(newListener);
   }
 
   public addDiscoveredSensor(newSensor: Sensor): void {
@@ -120,11 +121,11 @@ export class SamplerService {
       this.interval = undefined;
     }
     this.interval = setInterval(() => {
-      this.sample();
+      this.collect();
     }, newIntervalMs);
   }
 
-  private async sample() {
+  private async collect() {
     const sensorsToSample = this.isRecording() ? this.sensorsToRecord : this.allSensors;
     for (const sensor of sensorsToSample) {
       var tempC = await this.sampleSensor(sensor);
@@ -140,13 +141,22 @@ export class SamplerService {
         });
       }
 
-      // notify all SensorSampledCallbacks of new sensor reading
-      for (const cb of this.callbacks) {
+      // notify all listeners of each new sensor reading
+      for (const listener of this.listeners) {
         try {
-          cb(sensor, tempC);
+          listener.onSensorSampled(sensor, tempC);
         } catch (err: any) {
           // ignore error
         }
+      }
+    }
+
+    // notify all listeners that the collection is complete
+    for (const listener of this.listeners) {
+      try {
+        listener.onCollectionComplete();
+      } catch (err: any) {
+        // ignore error
       }
     }
   }
