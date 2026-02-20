@@ -1,9 +1,11 @@
+import { createServer } from "http";
 import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
 import { ThermoServer } from "./ThermoServer"
+import { WebSocketServer } from 'ws';
 import * as fs from "fs";
 import yargs from 'yargs';
-// import express from "express";
+import express from "express";
 
 const DEFAULT_BACKEND_PORT = 3000;
 
@@ -23,8 +25,11 @@ async function main() {
       })
       .alias('h', 'help')
       .parseSync();
-  
-  const server = new ThermoServer();
+
+  const app = express();
+  const server = createServer(app);
+  const wss = new WebSocketServer({ server });
+  const thermoServer = new ThermoServer();
 
   if (argv.config.length > 0) {
       const raw = fs.readFileSync(argv.config, "utf-8");
@@ -33,25 +38,29 @@ async function main() {
     if ('simSensors' in config) {
       const simSensors = config['simSensors'] as string[];
       console.info(`loading simSensors: [${simSensors}] ...`);
-      server.loadSimSensors(simSensors);
+      await thermoServer.loadSimSensors(simSensors);
     }
   }
 
-  // const app = express();
+  // Middleware
+  app.use(express.json());
 
-  // app.use(express.json());
+  // Routes
+  app.use(express.static('./public'));
 
   // app.use("/api/sensors", sensorRoutes);
   // app.use("/api/data", dataRoutes);
   // app.use("/api/config", configRoutes);
 
-  // const sampler = new SamplerService(prisma);
-  // sampler.start();
+  // Handle web socket connections
+  wss.on('connection', ws => {
+    thermoServer.addNewClient(ws);
+  });
 
-  // const PORT = 3000;
-  // app.listen(PORT, () => {
-  //   console.log(`Server running on port ${PORT}`);
-  // });
+  // Start web server
+  server.listen(argv.port, () => {
+    console.log(`Server running on port ${argv.port}`);
+  });
 }
 
 main()

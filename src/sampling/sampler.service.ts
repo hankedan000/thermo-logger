@@ -1,15 +1,33 @@
 import { randomInt } from "node:crypto";
 import { PrismaClient, Sensor } from "../generated/prisma/client";
 
+const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
+
+export interface SensorSampledCallback {
+  (sensor: Sensor, tempC: number): void;
+}
+
 export class SamplerService {
   private interval: NodeJS.Timeout | undefined;
-  private sensorList: Sensor[] = [];
+  private allSensors: Sensor[] = [];
+  private sensorsToRecord: Sensor[] = [];
   private activeSessionId: string | undefined;
+  private callbacks: SensorSampledCallback[] = [];
 
-  constructor(private prisma: PrismaClient) {}
+  constructor(private prisma: PrismaClient) {
+    this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
+  }
+
+  public registerSensorSampledCallback(cb: SensorSampledCallback): void {
+    this.callbacks.push(cb);
+  }
+
+  public addDiscoveredSensor(newSensor: Sensor): void {
+    this.allSensors.push(newSensor);
+  }
 
   public isRecording(): boolean {
-    return this.interval != null;
+    return this.activeSessionId != null;
   }
 
   /**
@@ -19,10 +37,10 @@ export class SamplerService {
    * @param sensorIds list of sensorIds to record in this session
    * @returns the id of the RecordSession that was started, or null
    */
-  public async start(
+  public async startRecording(
     sessionName: string,
     sampleRateMs: number,
-    sensorIds: string[])
+    sensorIdsToRecord: Set<string>)
   : Promise<string | null> {
     if (this.isRecording()) {
       console.warn(`recording session is activate. can't start another.`);
@@ -30,8 +48,8 @@ export class SamplerService {
     }
 
     // get all the Sensor objects from the database for each sensorId
-    const sensorList: Sensor[] = [];
-    for (const sensorId of sensorIds) {
+    const tmpSensorsToRecord: Sensor[] = [];
+    for (const sensorId of sensorIdsToRecord) {
       const sensor = await this.prisma.sensor.findUnique({
         where: {id: sensorId}
       });
@@ -40,7 +58,7 @@ export class SamplerService {
         console.error(`failed to find sensorId '${sensorId}' in database`);
         return null;
       }
-      sensorList.push(sensor);
+      tmpSensorsToRecord.push(sensor);
     }
 
     // create a new RecordSession in the database
@@ -52,7 +70,7 @@ export class SamplerService {
     });
 
     // snapshot all the Sensor's currentName values in the SessionSensor table
-    for (const sensor of sensorList) {
+    for (const sensor of tmpSensorsToRecord) {
       await this.prisma.sessionSensor.create({
         data: {
           sessionId: recordSession.id,
@@ -63,11 +81,9 @@ export class SamplerService {
     }
 
     // accept the recording and start the sampling timer
-    this.sensorList = sensorList;
+    this.sensorsToRecord = tmpSensorsToRecord;
     this.activeSessionId = recordSession.id;
-    this.interval = setInterval(() => {
-      this.sample();
-    }, sampleRateMs);
+    this.restartSamplingInterval(sampleRateMs);
     return recordSession.id;
   }
 
@@ -75,7 +91,7 @@ export class SamplerService {
    * Stops the active recording
    * @returns true if stopped a recording, false otherwise
    */
-  public async stop(): Promise<boolean> {
+  public async stopRecording(): Promise<boolean> {
     if ( ! this.interval || ! this.activeSessionId) {
       console.warn(`no recording is active. ignoring stop()`);
       return false;
@@ -91,35 +107,57 @@ export class SamplerService {
       }
     });
 
-    // clear internal items to get ready for a new start()
-    clearInterval(this.interval);
-    this.interval = undefined;
-    this.sensorList = [];
+    // reset back to an idle state where we just sample all sensors
+    this.sensorsToRecord = [];
     this.activeSessionId = undefined;
+    this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
     return true;
   }
 
-  private async sample() {
-    if ( ! this.activeSessionId) {
-      console.warn(`can't sample without an activeSessionId`);
-      return;
+  private restartSamplingInterval(newIntervalMs: number) {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = undefined;
     }
+    this.interval = setInterval(() => {
+      this.sample();
+    }, newIntervalMs);
+  }
 
-    for (const sensor of this.sensorList) {
+  private async sample() {
+    const sensorsToSample = this.isRecording() ? this.sensorsToRecord : this.allSensors;
+    for (const sensor of sensorsToSample) {
+      var tempC = await this.sampleSensor(sensor);
+
+      if (this.activeSessionId) {
+        // store sensor reading with the associated record session
+        await this.prisma.reading.create({
+          data: {
+            tempC: tempC,
+            sessionId: this.activeSessionId,
+            sensorId: sensor.id,
+          }
+        });
+      }
+
+      // notify all SensorSampledCallbacks of new sensor reading
+      for (const cb of this.callbacks) {
+        try {
+          cb(sensor, tempC);
+        } catch (err: any) {
+          // ignore error
+        }
+      }
+    }
+  }
+
+  private async sampleSensor(sensor: Sensor): Promise<number> {
       var tempC = NaN;
       if (sensor.isSimulated) {
         tempC = randomInt(20, 26);
       } else {
         // TODO do real onewire sensor reading
       }
-
-      await this.prisma.reading.create({
-        data: {
-          tempC: tempC,
-          sessionId: this.activeSessionId,
-          sensorId: sensor.id,
-        }
-      });
-    }
+      return tempC;
   }
 }

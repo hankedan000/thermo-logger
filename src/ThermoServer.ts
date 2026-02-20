@@ -1,24 +1,53 @@
-import { RecordSession, Sensor } from "./generated/prisma/client";
 import { prisma } from "./db/prisma";
+import { Sensor } from "./generated/prisma/client";
 import { SamplerService } from "./sampling/sampler.service";
+import { WebSocket } from "ws";
+
+const MAX_CLIENT_CONNECTIONS = 10;
 
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
-    public lastTempC?: number;         // last reading we got
-    public isSimulated: boolean = false;
+    public lastTempC: number = NaN;    // last reading we got
+}
+
+class ThermoClient {
+    ws: WebSocket;
+
+    constructor (ws: WebSocket) {
+        this.ws = ws;
+    }
 }
 
 export class ThermoServer {
-    private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
     public samplerService: SamplerService = new SamplerService(prisma);
+    private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
+    private clients: ThermoClient[] = [];
 
-    public loadSimSensors(hardwareIds: string[]): void {
+    constructor() {
+        this.samplerService.registerSensorSampledCallback(this.onSensorSampled);
+    }
+
+    public addNewClient(ws: WebSocket): boolean {
+        if (this.clients.length >= MAX_CLIENT_CONNECTIONS) {
+            console.warn(`max client connections reached (${MAX_CLIENT_CONNECTIONS}). rejecting new client connection.`);
+            ws.close();// reject the connection
+            return false;
+        }
+
+        const newClient = new ThermoClient(ws);
+        this.clients.push(newClient);
+        ws.onclose = this.onClientSocketClosed.bind(this, newClient);
+        console.log(`new client connection established (${this.clients.length} total)`);
+        return true;
+    }
+
+    public async loadSimSensors(hardwareIds: string[]): Promise<void> {
         for (const hardwareId of hardwareIds) {
-            this.loadSensor(hardwareId, true);
+            await this.loadSensor(hardwareId, true);
         }
     }
 
-    private loadSensor(hardwareId: string, isSimulated: boolean): void {
+    private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
         if (hardwareId in this.sensorStatusesByHwId) {
             console.warn(`sensor '${hardwareId}' already loaded`);
             return;
@@ -32,8 +61,9 @@ export class ThermoServer {
         } else {
             // TODO test if sensor is available and get first temp reading
         }
-        this.getOrCreateDbSensor(hardwareId, isSimulated);
+        const newSensor = await this.getOrCreateDbSensor(hardwareId, isSimulated);
         this.sensorStatusesByHwId.set(hardwareId, status);
+        this.samplerService.addDiscoveredSensor(newSensor);
     }
 
     private async getOrCreateDbSensor(hardwareId: string, isSimulated: boolean): Promise<Sensor> {
@@ -57,5 +87,22 @@ export class ThermoServer {
         console.debug('created new sensor!');
         console.debug(newSensor);
         return newSensor;
+    }
+
+    // callback for a client's WebSocket "close" event. if the client
+    // exists in our list of known clients, then it will be removed.
+    private onClientSocketClosed = (client: ThermoClient) => {
+        const index = this.clients.indexOf(client);
+        if (index > -1) {
+            console.log(`client connection closed`);
+            this.clients.splice(index, 1);
+        }
+    }
+
+    private onSensorSampled(sensor: Sensor, tempC: number): void {
+        const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
+        if (status) {
+            status.lastTempC = tempC;
+        }
     }
 }
