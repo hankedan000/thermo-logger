@@ -27,7 +27,8 @@ interface ServerMsg {
 }
 
 interface UI_SensorInfo {
-    hardwardId: string;
+    sensorId: string;
+    hardwareId: string;
     lastTempC: number;
     currentName: string;
     available: boolean;
@@ -79,7 +80,8 @@ export class ThermoServer implements SamplerListener {
             }
 
             infos.push({
-                hardwardId: hwId,
+                sensorId: sensor.id,
+                hardwareId: hwId,
                 lastTempC: status.lastTempC,
                 available: status.available,
                 currentName: sensor.currentName

@@ -6,6 +6,7 @@ import { WebSocketServer } from 'ws';
 import * as fs from "fs";
 import yargs from 'yargs';
 import express from "express";
+import path from "path";
 
 const DEFAULT_BACKEND_PORT = 3000;
 
@@ -46,7 +47,7 @@ async function main() {
   app.use(express.json());
 
   // Routes
-  app.use(express.static('./public'));
+  app.use(express.static(path.join(__dirname, "../web/dist")));
 
   app.get("/api/sensors", async (req, res) => {
     const sensors = await thermoServer.getUI_SensorInfos();
