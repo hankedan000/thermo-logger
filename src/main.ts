@@ -1,12 +1,13 @@
 import { createServer } from "http";
 import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
-import { ThermoServer } from "./server/ThermoServer"
+import { REST_Response, ThermoServer } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
 import * as fs from "fs";
-import yargs from 'yargs';
+import cors from "cors";
 import express from "express";
 import path from "path";
+import yargs from 'yargs';
 
 const DEFAULT_BACKEND_PORT = 3000;
 
@@ -45,6 +46,7 @@ async function main() {
 
   // Middleware
   app.use(express.json());
+  app.use(cors()); // permit cross-origin requests (ex. file:// loading from http://localhost)
 
   // Routes
   app.use(express.static(path.join(__dirname, "../web/dist")));
@@ -52,6 +54,12 @@ async function main() {
   app.get("/api/sensors", async (req, res) => {
     const sensors = await thermoServer.getUI_SensorInfos();
     res.json(sensors);
+  });
+
+  app.post("/api/rename_sensor", async (req, res) => {
+    const { sensorId, newName } = req.body;
+    const restResp = await thermoServer.renameSensor(sensorId, newName);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 
   // Handle web socket connections

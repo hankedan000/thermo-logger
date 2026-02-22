@@ -2,43 +2,55 @@ import { useEffect, useState } from "react";
 import SensorList from "./components/SensorList";
 import type { SensorUpdateEntry } from "./components/SensorList";
 import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
-
-const DEFAULT_SENSOR_UPDATE_ENTRIES: SensorUpdateEntry[] = [
-  {sensorId: '1', hardwareId: '1234', lastTempC: 20.0, currentName: 'sensor0', available: true},
-  {sensorId: '2', hardwareId: '5678', lastTempC: 21.0, currentName: 'sensor1', available: true},
-  {sensorId: '3', hardwareId: 'abcd', lastTempC: 25.0, currentName: 'sensor3', available: false}
-];
+import { StatusIndicator } from "./components/StatusIndicator";
 
 function App() {
   const baseUrl = `${location.hostname}:3000`;
-  const [sensors, setSensors] = useState<SensorUpdateEntry[]>(DEFAULT_SENSOR_UPDATE_ENTRIES);
+  const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorIdsToRecord, setSensorIdsToRecord] = useState<string[]>([]);
+  const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
 
   useEffect(() => {
-    const ws = new ReconnectingWebSocket(`ws://${baseUrl}`);
+    const ws = new ReconnectingWebSocket(`ws://${baseUrl}`, 1000, 1000);
+
+    const fetchLatestSensorInfo = () => {
+      fetch(`http://${baseUrl}/api/sensors`)
+        .then(resp => {
+          return resp.json();
+        })
+        .then(data => {
+          if (data.result) {
+            setSensors(data.result);
+          }
+        });
+    };
 
     // WebSocket handlers
     ws.onconnect = () => {
-        // updateStatusSpan(serverConnectionStatusSpan, 'CONNECTED', 'green');
+      setConnectedToServer(true);
 
-        ws.addEventListener('message', (event) => {
-          const msg = JSON.parse(event.data);
+      ws.addEventListener('message', (event) => {
+        const msg = JSON.parse(event.data);
 
-          if (msg.msgType === "SensorUpdate") {
-            setSensors(msg.sensors);
-          }
-        });
+        if (msg.msgType === "SensorUpdate") {
+          setSensors(msg.sensors);
+        }
+      });
 
-        ws.addEventListener('close', () => {
-            // updateStatusSpan(serverConnectionStatusSpan, 'DISCONNECTED', 'red');
-        });
+      ws.addEventListener('close', () => {
+        setSensors([]);
+        setSensorIdsToRecord([]);
+        setConnectedToServer(false);
+      });
+
+      fetchLatestSensorInfo();
     };
 
     return () => ws.close();
   }, []);
 
   const handleNameChange = (sensorId: string, newName: string) => {
-    fetch(`http://${baseUrl}/api/rename-sensor`, {
+    fetch(`http://${baseUrl}/api/rename_sensor`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -57,7 +69,11 @@ function App() {
 
   return (
     <div style={{ padding: "2rem" }}>
-      <h1>Sensor Monitor</h1>
+      <h2>Recorder Status</h2>
+      <StatusIndicator
+        labelText="Server: "
+        statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
+        color={connectedToServer ? 'green' : 'red'}/>
 
       <SensorList
         sensors={sensors}

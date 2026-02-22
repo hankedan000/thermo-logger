@@ -1,7 +1,9 @@
+import { StatusCodes } from "http-status-codes";
 import { prisma } from "../db/prisma";
 import { Sensor } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
+import { response } from "express";
 
 const MAX_CLIENT_CONNECTIONS = 10;
 
@@ -39,6 +41,12 @@ class SensorUpdateMsg implements ServerMsg {
     sensors: UI_SensorInfo[] = [];
 }
 
+export class REST_Response<RESULT_T> {
+    status: StatusCodes = StatusCodes.OK;
+    error: string = ''; // user-friendly status message
+    result?: RESULT_T;
+}
+
 export class ThermoServer implements SamplerListener {
     public samplerService: SamplerService = new SamplerService(prisma);
     private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
@@ -68,8 +76,37 @@ export class ThermoServer implements SamplerListener {
         }
     }
 
-    public async getUI_SensorInfos(): Promise<UI_SensorInfo[]> {
-        const infos: UI_SensorInfo[] = []
+    public async renameSensor(sensorId: string, newName: string): Promise<REST_Response<string>> {
+        // valid inputs
+        newName = newName.trim();
+        if ( ! newName || newName.length === 0) {
+            return {status: StatusCodes.BAD_REQUEST, error: "newName cannot be empty"};
+        } else if ( ! sensorId || sensorId.length === 0) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be empty"};
+        }
+        
+        try {
+            // attempt to rename the sensor in the database
+            const sensor = await prisma.sensor.update({
+                where: {id: sensorId},
+                data: {currentName: newName}
+            });
+
+            // rename was successful
+            return {status: StatusCodes.OK, error: 'Successfully renamed sensor', result: sensor.currentName};
+        } catch (err: any) {
+            // Prisma throws if record not found
+            if (err.code === "P2025") {
+                return {status: StatusCodes.NOT_FOUND, error: `sensorId '${sensorId}' doesn't exist in database`};
+            }
+
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to rename sensor"};
+        }
+    }
+
+    public async getUI_SensorInfos(): Promise<REST_Response<UI_SensorInfo[]>> {
+        const resp = new REST_Response<UI_SensorInfo[]>;
+        resp.result = [];
         for (const hwId of this.sensorStatusesByHwId.keys()) {
             const status = this.sensorStatusesByHwId.get(hwId);
             const sensor = await prisma.sensor.findUnique({
@@ -79,7 +116,7 @@ export class ThermoServer implements SamplerListener {
                 continue;
             }
 
-            infos.push({
+            resp.result.push({
                 sensorId: sensor.id,
                 hardwareId: hwId,
                 lastTempC: status.lastTempC,
@@ -87,7 +124,7 @@ export class ThermoServer implements SamplerListener {
                 currentName: sensor.currentName
             })
         }
-        return infos;
+        return resp;
     }
 
     public onSensorSampled(sensor: Sensor, tempC: number): void {
@@ -98,9 +135,14 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async onCollectionComplete(): Promise<void> {
-        const msg = new SensorUpdateMsg();
-        msg.sensors = await this.getUI_SensorInfos();
-        this.sendMsgToClients(msg);
+        const restResp = await this.getUI_SensorInfos();
+        if (restResp.result) {
+            const msg = new SensorUpdateMsg();
+            msg.sensors = restResp.result;
+            this.sendMsgToClients(msg);
+        } else {
+            console.error(`onCollectionComplete - getUI_SensorInfos() failed! error: '${restResp.error}'`);
+        }
     }
 
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
