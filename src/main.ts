@@ -53,7 +53,7 @@ async function main() {
 
   app.get("/api/server_state", async (req, res) => {
     res.json({
-      'recording': thermoServer.isRecording()
+      'activeSessionId': thermoServer.getActiveSessionId()
     });
   });
 
@@ -83,11 +83,12 @@ async function main() {
   });
 
   app.post("/api/stop_session", async (req, res) => {
-    const restResp = await thermoServer.startSession(
-      req.body.sessionName,
-      req.body.sampleRateMs,
-      req.body.sensorIdsToRecord,
-      req.body.notes);
+    const restResp = await thermoServer.stopSession();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/delete_session", async (req, res) => {
+    const restResp = await thermoServer.deleteSession(req.body.sessionId);
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 

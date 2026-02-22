@@ -5,12 +5,60 @@ import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
 import StatusIndicator from "./components/StatusIndicator";
 import SessionCreationForm from "./components/SessionCreationForm";
 import type { SensorSelectionEntry } from "./components/SensorSelectionList";
+import type { RecordSession } from "./components/SessionList";
+import SessionList from "./components/SessionList";
+
+class ServerState {
+  activeSessionId: string = "";
+}
 
 function App() {
   const baseUrl = `${location.hostname}:3000`;
+  const [serverState, setServerState] = useState<ServerState>(new ServerState());
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
+  const [sessions, setSessions] = useState<RecordSession[]>([]);
+
+  const fetchLatestServerState = () => {
+    fetch(`http://${baseUrl}/api/server_state`)
+      .then(resp => {
+        return resp.json();
+      })
+      .then(newState => {
+        if (newState) {
+          setServerState(newState);
+        } else {
+          setServerState(new ServerState());
+        }
+      });
+  };
+
+  const fetchLatestSensorInfo = () => {
+    fetch(`http://${baseUrl}/api/sensors`)
+      .then(resp => {
+        return resp.json();
+      })
+      .then(data => {
+        if (data.result) {
+          processLatestSensorInfo(data.result);
+        }
+      });
+  };
+
+  const fetchLatestSessions = () => {
+    fetch(`http://${baseUrl}/api/sessions`)
+      .then(resp => {
+        return resp.json();
+      })
+      .then(data => {
+        if (data.result) {
+          setSessions(data.result);
+        } else {
+          setSessions([]);
+        }
+      });
+  };
 
   const processLatestSensorInfo = (sensors: SensorUpdateEntry[]): void => {
     setSensors(sensors);
@@ -48,18 +96,6 @@ function App() {
   useEffect(() => {
     const ws = new ReconnectingWebSocket(`ws://${baseUrl}`, 1000, 1000);
 
-    const fetchLatestSensorInfo = () => {
-      fetch(`http://${baseUrl}/api/sensors`)
-        .then(resp => {
-          return resp.json();
-        })
-        .then(data => {
-          if (data.result) {
-            processLatestSensorInfo(data.result);
-          }
-        });
-    };
-
     // WebSocket handlers
     ws.onconnect = () => {
       setConnectedToServer(true);
@@ -77,7 +113,9 @@ function App() {
         setConnectedToServer(false);
       });
 
+      fetchLatestServerState();
       fetchLatestSensorInfo();
+      fetchLatestSessions();
     };
 
     return () => ws.close();
@@ -112,7 +150,40 @@ function App() {
     .then(data => {
       if ( ! data.result && data.error.length >= 0) {
         alert(data.error);
+      } else {
+        fetchLatestServerState();
+        fetchLatestSessions();
       }
+    });
+  };
+
+  const onSessionDelete = (sessionId: string) => {
+    fetch(`http://${baseUrl}/api/delete_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: sessionId
+      }),
+    })
+    .then(() => {
+      fetchLatestServerState();
+      fetchLatestSessions();
+    });
+  };
+
+  const onSessionExport = (sessionId: string) => {
+    // TODO implement export logic
+  };
+
+  const onSessionStop = () => {
+    fetch(`http://${baseUrl}/api/stop_session`, {
+      method: "POST"
+    })
+    .then(() => {
+      fetchLatestServerState();
+      fetchLatestSessions();
     });
   };
 
@@ -129,12 +200,23 @@ function App() {
         <SensorStatusList sensors={sensors}/>
       </div>
 
-      <h3>Start New Recording</h3>
-      <SessionCreationForm
-        sensorOptions={sensorOptions}
-        onStart={onStartSession}
-        onNameChange={handleNameChange}
-      />
+      <div hidden={serverState.activeSessionId.length > 0}>
+        <h3>Start New Recording</h3>
+        <SessionCreationForm
+          sensorOptions={sensorOptions}
+          onStart={onStartSession}
+          onNameChange={handleNameChange}/>
+      </div>
+
+      <h3>Sessions</h3>
+      <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
+        <SessionList
+          sessions={sessions}
+          activeSessionId={serverState.activeSessionId}
+          onDelete={onSessionDelete}
+          onExport={onSessionExport}
+          onStop={onSessionStop}/>
+      </div>
     </div>
   );
 }

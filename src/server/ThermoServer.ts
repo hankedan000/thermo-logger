@@ -61,6 +61,10 @@ export class ThermoServer implements SamplerListener {
         return this.samplerService.isRecording();
     }
 
+    public getActiveSessionId(): string {
+        return this.samplerService.getActiveSessionId();
+    }
+
     public addNewClient(ws: WebSocket): boolean {
         if (this.clients.length >= MAX_CLIENT_CONNECTIONS) {
             console.warn(`max client connections reached (${MAX_CLIENT_CONNECTIONS}). rejecting new client connection.`);
@@ -136,7 +140,7 @@ export class ThermoServer implements SamplerListener {
         const resp = new REST_Response<RecordSession[]>;
         resp.result = [];
         try {
-            resp.result = await prisma.recordSession.findMany();
+            resp.result = await prisma.recordSession.findMany({include: {sessionSensors: true}});
         } catch (err: any) {
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to query record sessions"};
         }
@@ -174,6 +178,31 @@ export class ThermoServer implements SamplerListener {
             return {status: StatusCodes.BAD_REQUEST, error: result};
         }
         return {status: StatusCodes.OK, error: "", result: result};
+    }
+
+    public async deleteSession(sessionId: string): Promise<REST_Response<void>> {
+        if (sessionId.length == 0) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sessionId can't be empty"};
+        }
+
+        try {
+            // if requested session to delete is the active one, then stop it first
+            // before moving forward with database deletions.
+            if (this.samplerService.getActiveSessionId() == sessionId) {
+                console.warn('requested deletion of active record session. stopping the recording ...');
+                await this.samplerService.stopRecording();
+            }
+
+            console.log(`deleting sessionId='${sessionId}' ...`);
+            const readingRes = await prisma.reading.deleteMany({where: {sessionId: sessionId}});
+            const sensorRes = await prisma.sessionSensor.deleteMany({where: {sessionId: sessionId}});
+            await prisma.recordSession.delete({where: {id: sessionId}});
+            console.log(`session deleted! included removal of ${readingRes.count} Reading(s) and ${sensorRes.count} SessionSensor(s)`);
+            return {status: StatusCodes.OK, error: ""};
+        } catch (e: any) {
+            console.error('deleteSession - unexpected error: ', e);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete session"};
+        }
     }
 
     public onSensorSampled(sensor: Sensor, tempC: number): void {

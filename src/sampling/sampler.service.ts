@@ -31,6 +31,13 @@ export class SamplerService {
     return this.activeSessionId != null;
   }
 
+  public getActiveSessionId(): string {
+    if ( ! this.activeSessionId) {
+      return "";
+    }
+    return this.activeSessionId;
+  }
+
   /**
    * Starts a new re cording session
    * @param sessionName the user-defined name for the recording session
@@ -110,6 +117,7 @@ export class SamplerService {
     });
 
     // reset back to an idle state where we just sample all sensors
+    console.log(`stopped record session '${session.name}'`);
     this.sensorsToRecord = [];
     this.activeSessionId = undefined;
     this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
