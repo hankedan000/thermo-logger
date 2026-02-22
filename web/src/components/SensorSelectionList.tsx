@@ -1,15 +1,13 @@
 import { useEffect, useState } from "react";
 
-export interface SensorUpdateEntry {
+export interface SensorSelectionEntry {
   sensorId: string;   // uuid of the sensor in the database
   hardwareId: string; // hardware id burned into the sensor (1-wire specific)
-  lastTempC: number;
   currentName: string;
-  available: boolean;
 }
 
 interface Props {
-  sensors: SensorUpdateEntry[];
+  sensorOptions: SensorSelectionEntry[];
   sensorIdsToRecord: string[];
   onNameChange: (sensorId: string, newName: string) => void;
   onRecordToggle: (sensorId: string) => void;
@@ -50,13 +48,13 @@ function CommitInput({
   );
 }
 
-export default function SensorList({
-  sensors,
+export default function SensorSelectionList({
+  sensorOptions,
   sensorIdsToRecord,
   onNameChange,
   onRecordToggle,
 }: Props) {
-  const sensorRows = sensors.map((sensor) => (
+  const sensorRows = sensorOptions.map((sensor) => (
     <tr key={sensor.hardwareId}>
       <td>{sensor.hardwareId}</td>
 
@@ -66,10 +64,6 @@ export default function SensorList({
           onCommit={(newName) => {onNameChange(sensor.sensorId, newName);}}
         />
       </td>
-
-      <td>{sensor.lastTempC.toFixed(2)}</td>
-
-      <td>{sensor.available ? "🟢" : "🔴"}</td>
 
       <td>
         <input
@@ -87,8 +81,6 @@ export default function SensorList({
         <tr>
           <th>Hardware ID</th>
           <th>Name</th>
-          <th>Temp (°C)</th>
-          <th>Status</th>
           <th>Record It?</th>
         </tr>
       </thead>

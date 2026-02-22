@@ -1,16 +1,34 @@
 import { useState } from "react";
+import SensorSelectionList from "./SensorSelectionList";
 
 const DEFAULT_SAMPLING_RATE_MS = 5000;
 
-interface Props {
-    onStart: (sessionName: string, sampleRateMs: number, notes: string) => void;
+export interface SensorSelectionEntry {
+  sensorId: string;   // uuid of the sensor in the database
+  hardwareId: string; // hardware id burned into the sensor (1-wire specific)
+  currentName: string;
 }
 
-export function SessionCreationForm({onStart}: Props) {
+interface Props {
+    sensorOptions: SensorSelectionEntry[];
+    onNameChange: (sensorId: string, newName: string) => void;
+    onStart: (sessionName: string, sampleRateMs: number, sensorIdsToRecord: string[], notes: string) => void;
+}
+
+export default function SessionCreationForm({sensorOptions, onNameChange, onStart}: Props) {
     const [sessionName, setSessionName] = useState("");
     const [sampleRateMs, setSampleRateMs] = useState(DEFAULT_SAMPLING_RATE_MS);
+    const [sensorIdsToRecord, setSensorIdsToRecord] = useState<string[]>([]);
     const [notes, setNotes] = useState("");
     const [submitting, setSubmitting] = useState(false);
+
+    const handleRecordToggle = (sensorId: string) => {
+        if (sensorIdsToRecord.indexOf(sensorId) >= 0) {
+            setSensorIdsToRecord(sensorIdsToRecord.filter(s => s !== sensorId));
+        } else {
+            setSensorIdsToRecord(sensorIdsToRecord.concat([sensorId]));
+        }
+    };
 
     const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
         e.preventDefault();
@@ -18,7 +36,7 @@ export function SessionCreationForm({onStart}: Props) {
         setSubmitting(true);
 
         try {
-            onStart(sessionName.trim(), sampleRateMs, notes.trim());
+            onStart(sessionName.trim(), sampleRateMs, sensorIdsToRecord, notes.trim());
         } finally {
             setSubmitting(false);
         }
@@ -51,6 +69,15 @@ export function SessionCreationForm({onStart}: Props) {
                         style={{ marginLeft: "0.5rem", width: "100px" }}
                     />
                 </label>
+            </div>
+
+            <div>
+                Sensor Selection:
+                <SensorSelectionList
+                    sensorOptions={sensorOptions}
+                    sensorIdsToRecord={sensorIdsToRecord}
+                    onNameChange={onNameChange}
+                    onRecordToggle={handleRecordToggle}/>
             </div>
 
             <div style={{ marginBottom: "1rem" }}>

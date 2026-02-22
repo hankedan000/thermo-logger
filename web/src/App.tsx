@@ -1,15 +1,49 @@
 import { useEffect, useState } from "react";
-import SensorList from "./components/SensorList";
-import type { SensorUpdateEntry } from "./components/SensorList";
+import SensorStatusList from "./components/SensorStatusList";
+import type { SensorUpdateEntry } from "./components/SensorStatusList";
 import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
-import { StatusIndicator } from "./components/StatusIndicator";
-import { SessionCreationForm } from "./components/SessionCreationForm";
+import StatusIndicator from "./components/StatusIndicator";
+import SessionCreationForm from "./components/SessionCreationForm";
+import type { SensorSelectionEntry } from "./components/SensorSelectionList";
 
 function App() {
   const baseUrl = `${location.hostname}:3000`;
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
-  const [sensorIdsToRecord, setSensorIdsToRecord] = useState<string[]>([]);
+  const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
+
+  const processLatestSensorInfo = (sensors: SensorUpdateEntry[]): void => {
+    setSensors(sensors);
+
+    // build a set of sensorIds that were available prior to this update
+    // we'll use this to detect if one of them disappeared
+    const prevAvailableSensorIds = new Set<string>;
+    for (const sensor of sensorOptions) {
+      prevAvailableSensorIds.add(sensor.sensorId);
+    }
+
+    const newSensorOptions: SensorSelectionEntry[] = [];
+    const currAvailableSensorIds = new Set<string>;
+    for (const sensor of sensors) {
+      if ( ! sensor.available) {
+        continue;
+      }
+
+      currAvailableSensorIds.add(sensor.sensorId);
+      newSensorOptions.push({
+        sensorId: sensor.sensorId,
+        hardwareId: sensor.hardwareId,
+        currentName: sensor.currentName
+      });
+    }
+
+    const areSetsEqual = (a: Set<string>, b: Set<string>) =>
+      a.size === b.size &&
+      [...a].every((x) => b.has(x));
+    if ( ! areSetsEqual(prevAvailableSensorIds, currAvailableSensorIds)) {
+      setSensorOptions(newSensorOptions);
+    }
+  }
 
   useEffect(() => {
     const ws = new ReconnectingWebSocket(`ws://${baseUrl}`, 1000, 1000);
@@ -21,7 +55,7 @@ function App() {
         })
         .then(data => {
           if (data.result) {
-            setSensors(data.result);
+            processLatestSensorInfo(data.result);
           }
         });
     };
@@ -34,13 +68,12 @@ function App() {
         const msg = JSON.parse(event.data);
 
         if (msg.msgType === "SensorUpdate") {
-          setSensors(msg.sensors);
+          processLatestSensorInfo(msg.sensors);
         }
       });
 
       ws.addEventListener('close', () => {
-        setSensors([]);
-        setSensorIdsToRecord([]);
+        processLatestSensorInfo([]);
         setConnectedToServer(false);
       });
 
@@ -60,15 +93,7 @@ function App() {
     });
   };
 
-  const handleRecordToggle = (sensorId: string) => {
-    if (sensorIdsToRecord.indexOf(sensorId) >= 0) {
-      setSensorIdsToRecord(sensorIdsToRecord.filter(s => s !== sensorId));
-    } else {
-      setSensorIdsToRecord(sensorIdsToRecord.concat([sensorId]));
-    }
-  };
-
-  const onStartSession = (sessionName: string, sampleRateMs: number, notes: string): void => {
+  const onStartSession = (sessionName: string, sampleRateMs: number, sensorIdsToRecord: string[], notes: string): void => {
     fetch(`http://${baseUrl}/api/start_session`, {
       method: "POST",
       headers: {
@@ -87,29 +112,28 @@ function App() {
     .then(data => {
       if ( ! data.result && data.error.length >= 0) {
         alert(data.error);
-        return false;
       }
     });
-    return true;
   };
 
   return (
     <div style={{ padding: "2rem" }}>
-      <h2>Recorder Status</h2>
-      <StatusIndicator
-        labelText="Server: "
-        statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
-        color={connectedToServer ? 'green' : 'red'}/>
+      <h3>Status</h3>
+      <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
+        <StatusIndicator
+          labelText="Server: "
+          statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
+          color={connectedToServer ? 'green' : 'red'}/>
 
-      <SensorList
-        sensors={sensors}
-        sensorIdsToRecord={sensorIdsToRecord}
-        onNameChange={handleNameChange}
-        onRecordToggle={handleRecordToggle}
-      />
+        Sensors:
+        <SensorStatusList sensors={sensors}/>
+      </div>
 
+      <h3>Start New Recording</h3>
       <SessionCreationForm
+        sensorOptions={sensorOptions}
         onStart={onStartSession}
+        onNameChange={handleNameChange}
       />
     </div>
   );
