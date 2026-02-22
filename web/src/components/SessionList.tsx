@@ -1,3 +1,5 @@
+import SensorNames from "./SensorNames";
+
 export interface SessionSensor {
   id: string;
   sessionId: string;
@@ -37,9 +39,7 @@ export default function SessionList({sessions, activeSessionId, onDelete, onExpo
       <td>{session.startedAt.toString()}</td>
 
       <td>
-        {session.sessionSensors.map((sensor) => (
-            <span>{sensor.name}</span>
-        ))}
+        <SensorNames sensorNames={session.sessionSensors.map((sensor) => sensor.name)}/>
       </td>
 
       <td>

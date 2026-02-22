@@ -201,14 +201,14 @@ function App() {
       </div>
 
       <div hidden={serverState.activeSessionId.length > 0}>
-        <h3>Start New Recording</h3>
+        <h3>New Recording Session</h3>
         <SessionCreationForm
           sensorOptions={sensorOptions}
           onStart={onStartSession}
           onNameChange={handleNameChange}/>
       </div>
 
-      <h3>Sessions</h3>
+      <h3>Recording Sessions</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
         <SessionList
           sessions={sessions}
