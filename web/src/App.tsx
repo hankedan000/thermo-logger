@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import SensorList from "./components/SensorList";
 import type { SensorUpdateEntry } from "./components/SensorList";
+import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
 
 const DEFAULT_SENSOR_UPDATE_ENTRIES: SensorUpdateEntry[] = [
   {sensorId: '1', hardwareId: '1234', lastTempC: 20.0, currentName: 'sensor0', available: true},
@@ -14,14 +15,23 @@ function App() {
   const [sensorIdsToRecord, setSensorIdsToRecord] = useState<string[]>([]);
 
   useEffect(() => {
-    const ws = new WebSocket(`ws://${baseUrl}`);
+    const ws = new ReconnectingWebSocket(`ws://${baseUrl}`);
 
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+    // WebSocket handlers
+    ws.onconnect = () => {
+        // updateStatusSpan(serverConnectionStatusSpan, 'CONNECTED', 'green');
 
-      if (msg.msgType === "SensorUpdate") {
-        setSensors(msg.sensors);
-      }
+        ws.addEventListener('message', (event) => {
+          const msg = JSON.parse(event.data);
+
+          if (msg.msgType === "SensorUpdate") {
+            setSensors(msg.sensors);
+          }
+        });
+
+        ws.addEventListener('close', () => {
+            // updateStatusSpan(serverConnectionStatusSpan, 'DISCONNECTED', 'red');
+        });
     };
 
     return () => ws.close();
