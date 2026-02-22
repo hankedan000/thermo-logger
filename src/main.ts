@@ -1,7 +1,7 @@
 import { createServer } from "http";
 import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
-import { REST_Response, ThermoServer } from "./server/ThermoServer"
+import { ThermoServer } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
 import * as fs from "fs";
 import cors from "cors";
@@ -51,14 +51,43 @@ async function main() {
   // Routes
   app.use(express.static(path.join(__dirname, "../web/dist")));
 
+  app.get("/api/server_state", async (req, res) => {
+    res.json({
+      'recording': thermoServer.isRecording()
+    });
+  });
+
   app.get("/api/sensors", async (req, res) => {
     const sensors = await thermoServer.getUI_SensorInfos();
     res.json(sensors);
   });
 
+  app.get("/api/sessions", async (req, res) => {
+    const restResp = await thermoServer.getSessions();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
   app.post("/api/rename_sensor", async (req, res) => {
     const { sensorId, newName } = req.body;
     const restResp = await thermoServer.renameSensor(sensorId, newName);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/start_session", async (req, res) => {
+    const restResp = await thermoServer.startSession(
+      req.body.sessionName,
+      req.body.sampleRateMs,
+      req.body.sensorIdsToRecord,
+      req.body.notes);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/stop_session", async (req, res) => {
+    const restResp = await thermoServer.startSession(
+      req.body.sessionName,
+      req.body.sampleRateMs,
+      req.body.sensorIdsToRecord,
+      req.body.notes);
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 

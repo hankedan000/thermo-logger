@@ -14,8 +14,8 @@ model Sensor {
   isSimulated Boolean
   currentName String
 
-  readings    Reading[]
-  sessionMaps SessionSensor[]
+  readings       Reading[]
+  sessionSensors SessionSensor[]
 }
 
 model SessionSensor {
@@ -36,9 +36,10 @@ model RecordSession {
   startedAt     DateTime @default(now())
   endedAt       DateTime?
   sampleRateMs  Int
+  notes         String @default("")
 
-  readings      Reading[]
-  sessionMaps   SessionSensor[]
+  readings       Reading[]
+  sessionSensors SessionSensor[]
 }
 
 model Reading {

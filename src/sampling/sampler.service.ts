@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { PrismaClient, Sensor } from "../generated/prisma/client";
+import { PrismaClient, RecordSession, Sensor } from "../generated/prisma/client";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
@@ -36,16 +36,17 @@ export class SamplerService {
    * @param sessionName the user-defined name for the recording session
    * @param sampleRateMs the sample rate in milliseconds
    * @param sensorIds list of sensorIds to record in this session
+   * @param notes user-provided notes to attach to the record session
    * @returns the id of the RecordSession that was started, or null
    */
   public async startRecording(
     sessionName: string,
     sampleRateMs: number,
-    sensorIdsToRecord: Set<string>)
-  : Promise<string | null> {
+    sensorIdsToRecord: Set<string>,
+    notes: string)
+  : Promise<RecordSession | string> {
     if (this.isRecording()) {
-      console.warn(`recording session is activate. can't start another.`);
-      return null;
+      return `can't start recording session because one is already active`;
     }
 
     // get all the Sensor objects from the database for each sensorId
@@ -56,8 +57,7 @@ export class SamplerService {
       });
 
       if ( ! sensor) {
-        console.error(`failed to find sensorId '${sensorId}' in database`);
-        return null;
+        return `sensorId '${sensorId}' doens't exist in database`;
       }
       tmpSensorsToRecord.push(sensor);
     }
@@ -66,7 +66,8 @@ export class SamplerService {
     const recordSession = await this.prisma.recordSession.create({
       data: {
         name: sessionName,
-        sampleRateMs: sampleRateMs
+        sampleRateMs: sampleRateMs,
+        notes: notes
       }
     });
 
@@ -85,21 +86,20 @@ export class SamplerService {
     this.sensorsToRecord = tmpSensorsToRecord;
     this.activeSessionId = recordSession.id;
     this.restartSamplingInterval(sampleRateMs);
-    return recordSession.id;
+    return recordSession;
   }
 
   /**
    * Stops the active recording
    * @returns true if stopped a recording, false otherwise
    */
-  public async stopRecording(): Promise<boolean> {
+  public async stopRecording(): Promise<RecordSession | string> {
     if ( ! this.interval || ! this.activeSessionId) {
-      console.warn(`no recording is active. ignoring stop()`);
-      return false;
+      return `No recording is active`;
     }
 
     // mark the session ended
-    await this.prisma.recordSession.update({
+    const session = await this.prisma.recordSession.update({
       where: {
         id: this.activeSessionId,
       },
@@ -112,7 +112,7 @@ export class SamplerService {
     this.sensorsToRecord = [];
     this.activeSessionId = undefined;
     this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
-    return true;
+    return session;
   }
 
   private restartSamplingInterval(newIntervalMs: number) {

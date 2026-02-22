@@ -3,9 +3,10 @@ import { prisma } from "../db/prisma";
 import { Sensor } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
-import { response } from "express";
+import { RecordSession } from "../generated/prisma/browser";
 
 const MAX_CLIENT_CONNECTIONS = 10;
+const MIN_SAMPLING_RATE_MS = 1000; // 1s
 
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
@@ -48,12 +49,16 @@ export class REST_Response<RESULT_T> {
 }
 
 export class ThermoServer implements SamplerListener {
-    public samplerService: SamplerService = new SamplerService(prisma);
+    private samplerService: SamplerService = new SamplerService(prisma);
     private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
     private clients: ThermoClient[] = [];
 
     constructor() {
         this.samplerService.addListener(this);
+    }
+
+    public isRecording(): boolean {
+        return this.samplerService.isRecording();
     }
 
     public addNewClient(ws: WebSocket): boolean {
@@ -125,6 +130,50 @@ export class ThermoServer implements SamplerListener {
             })
         }
         return resp;
+    }
+
+    public async getSessions(): Promise<REST_Response<RecordSession[]>> {
+        const resp = new REST_Response<RecordSession[]>;
+        resp.result = [];
+        try {
+            resp.result = await prisma.recordSession.findMany();
+        } catch (err: any) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to query record sessions"};
+        }
+        return resp;
+    }
+
+    public async startSession(
+        sessionName: string,
+        sampleRateMs: number,
+        sensorIdsToRecord: string[],
+        notes: string)
+    : Promise<REST_Response<RecordSession>> {
+        if (this.samplerService.isRecording()) {
+            return {status: StatusCodes.CONFLICT, error: "Can't start a new recording while one is running. Stop recording first."};
+        } else if (sensorIdsToRecord.length == 0) {
+            return {status: StatusCodes.BAD_REQUEST, error: "Must select sensors to record before starting a session."};
+        } else if (sampleRateMs < MIN_SAMPLING_RATE_MS) {
+            return {status: StatusCodes.BAD_REQUEST, error: `Sampling rate must be >= ${MIN_SAMPLING_RATE_MS / 1000.0}s`};
+        }
+
+        const result = await this.samplerService.startRecording(
+            sessionName,
+            sampleRateMs,
+            new Set(sensorIdsToRecord),
+            notes);
+        if (typeof result === 'string') {
+            return {status: StatusCodes.BAD_REQUEST, error: result};
+        }
+        return {status: StatusCodes.OK, error: "", result: result};
+    }
+
+    public async stopSession(): Promise<REST_Response<RecordSession>> {
+        const result = await this.samplerService.stopRecording();
+        if (typeof result === 'string') {
+            return {status: StatusCodes.BAD_REQUEST, error: result};
+        }
+        return {status: StatusCodes.OK, error: "", result: result};
     }
 
     public onSensorSampled(sensor: Sensor, tempC: number): void {
