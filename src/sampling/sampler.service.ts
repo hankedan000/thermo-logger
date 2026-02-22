@@ -83,6 +83,7 @@ export class SamplerService {
     }
 
     // accept the recording and start the sampling timer
+    console.log(`started record session '${sessionName}'`);
     this.sensorsToRecord = tmpSensorsToRecord;
     this.activeSessionId = recordSession.id;
     this.restartSamplingInterval(sampleRateMs);

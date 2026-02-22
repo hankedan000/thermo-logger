@@ -3,6 +3,7 @@ import SensorList from "./components/SensorList";
 import type { SensorUpdateEntry } from "./components/SensorList";
 import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
 import { StatusIndicator } from "./components/StatusIndicator";
+import { SessionCreationForm } from "./components/SessionCreationForm";
 
 function App() {
   const baseUrl = `${location.hostname}:3000`;
@@ -67,6 +68,31 @@ function App() {
     }
   };
 
+  const onStartSession = (sessionName: string, sampleRateMs: number, notes: string): void => {
+    fetch(`http://${baseUrl}/api/start_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionName: sessionName,
+        sampleRateMs: sampleRateMs,
+        sensorIdsToRecord: sensorIdsToRecord,
+        notes: notes
+      }),
+    })
+    .then(resp => {
+      return resp.json();
+    })
+    .then(data => {
+      if ( ! data.result && data.error.length >= 0) {
+        alert(data.error);
+        return false;
+      }
+    });
+    return true;
+  };
+
   return (
     <div style={{ padding: "2rem" }}>
       <h2>Recorder Status</h2>
@@ -80,6 +106,10 @@ function App() {
         sensorIdsToRecord={sensorIdsToRecord}
         onNameChange={handleNameChange}
         onRecordToggle={handleRecordToggle}
+      />
+
+      <SessionCreationForm
+        onStart={onStartSession}
       />
     </div>
   );
