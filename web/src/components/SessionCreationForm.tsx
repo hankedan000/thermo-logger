@@ -4,25 +4,25 @@ import SensorSelectionList from "./SensorSelectionList";
 const DEFAULT_SAMPLING_RATE_MS = 5000;
 
 export interface SensorSelectionEntry {
-  sensorId: string;   // uuid of the sensor in the database
+  sensorId: number;   // id of the sensor in the database
   hardwareId: string; // hardware id burned into the sensor (1-wire specific)
   currentName: string;
 }
 
 interface Props {
     sensorOptions: SensorSelectionEntry[];
-    onNameChange: (sensorId: string, newName: string) => void;
-    onStart: (sessionName: string, sampleRateMs: number, sensorIdsToRecord: string[], notes: string) => void;
+    onNameChange: (sensorId: number, newName: string) => void;
+    onStart: (sessionName: string, sampleRateMs: number, sensorIdsToRecord: number[], notes: string) => void;
 }
 
 export default function SessionCreationForm({sensorOptions, onNameChange, onStart}: Props) {
     const [sessionName, setSessionName] = useState("");
     const [sampleRateMs, setSampleRateMs] = useState(DEFAULT_SAMPLING_RATE_MS);
-    const [sensorIdsToRecord, setSensorIdsToRecord] = useState<string[]>([]);
+    const [sensorIdsToRecord, setSensorIdsToRecord] = useState<number[]>([]);
     const [notes, setNotes] = useState("");
     const [submitting, setSubmitting] = useState(false);
 
-    const handleRecordToggle = (sensorId: string) => {
+    const handleRecordToggle = (sensorId: number) => {
         if (sensorIdsToRecord.indexOf(sensorId) >= 0) {
             setSensorIdsToRecord(sensorIdsToRecord.filter(s => s !== sensorId));
         } else {

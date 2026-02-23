@@ -1,16 +1,16 @@
 import { useEffect, useState } from "react";
 
 export interface SensorSelectionEntry {
-  sensorId: string;   // uuid of the sensor in the database
+  sensorId: number;   // id of the sensor in the database
   hardwareId: string; // hardware id burned into the sensor (1-wire specific)
   currentName: string;
 }
 
 interface Props {
   sensorOptions: SensorSelectionEntry[];
-  sensorIdsToRecord: string[];
-  onNameChange: (sensorId: string, newName: string) => void;
-  onRecordToggle: (sensorId: string) => void;
+  sensorIdsToRecord: number[];
+  onNameChange: (sensorId: number, newName: string) => void;
+  onRecordToggle: (sensorId: number) => void;
 }
 
 function CommitInput({

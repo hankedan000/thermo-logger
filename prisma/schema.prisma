@@ -8,51 +8,62 @@ datasource db {
 }
 
 model Sensor {
-  id          String   @id @default(uuid())
-  hardwareId  String   @unique  // 1-wire unique ID
-  createdAt   DateTime @default(now())
-  isSimulated Boolean
-  currentName String
+  id             Int             @id @default(autoincrement())
+  hardwareId     String          @unique // 1-wire unique ID
+  createdAt      DateTime        @default(now())
+  isSimulated    Boolean
+  currentName    String
 
-  readings       Reading[]
   sessionSensors SessionSensor[]
+  samples        Sample[]
 }
 
 model SessionSensor {
-  id          String   @id @default(uuid())
-  sessionId   String
-  sensorId    String
-  name        String   // snapshot name for THIS session
+  id        Int    @id @default(autoincrement())
+  sessionId Int
+  sensorId  Int
+  name      String // snapshot name for THIS session
 
-  session     RecordSession @relation(fields: [sessionId], references: [id])
-  sensor      Sensor        @relation(fields: [sensorId], references: [id])
+  session RecordSession @relation(fields: [sessionId], references: [id])
+  sensor  Sensor        @relation(fields: [sensorId], references: [id])
 
   @@unique([sessionId, sensorId])
 }
 
 model RecordSession {
-  id            String   @id @default(uuid())
-  name          String
-  startedAt     DateTime @default(now())
-  endedAt       DateTime?
-  sampleRateMs  Int
-  notes         String @default("")
+  id           Int       @id @default(autoincrement())
+  name         String
+  startedAt    DateTime  @default(now())
+  endedAt      DateTime?
+  sampleRateMs Int
+  notes        String    @default("")
 
-  readings       Reading[]
+  samples        Sample[]
   sessionSensors SessionSensor[]
 }
 
-model Reading {
-  id          String   @id @default(uuid())
-  tempC       Float
-  timestamp   DateTime @default(now())
-
-  sessionId   String
-  sensorId    String
-
-  session     RecordSession @relation(fields: [sessionId], references: [id])
-  sensor      Sensor        @relation(fields: [sensorId], references: [id])
+model SampleGroup {
+  id        Int      @id @default(autoincrement())
+  timestamp DateTime @default(now())
+  sessionId Int
+  
+  samples   Sample[]
 
   @@index([sessionId])
+}
+
+model Sample {
+  id            Int   @id @default(autoincrement())
+  tempC         Float
+  sensorId      Int
+  sessionId     Int
+  sampleGroupId Int
+
+  sensor      Sensor        @relation(fields: [sensorId], references: [id])
+  session     RecordSession @relation(fields: [sessionId], references: [id])
+  sampleGroup SampleGroup   @relation(fields: [sampleGroupId], references: [id])
+
   @@index([sensorId])
+  @@index([sessionId])
+  @@index([sampleGroupId])
 }

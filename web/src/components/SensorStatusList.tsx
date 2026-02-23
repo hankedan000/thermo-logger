@@ -1,5 +1,5 @@
 export interface SensorUpdateEntry {
-  sensorId: string;   // uuid of the sensor in the database
+  sensorId: number;   // id of the sensor in the database
   hardwareId: string; // hardware id burned into the sensor (1-wire specific)
   lastTempC: number;
   currentName: string;

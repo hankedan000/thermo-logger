@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { PrismaClient, RecordSession, Sensor } from "../generated/prisma/client";
+import { PrismaClient, RecordSession, SampleGroup, Sensor } from "../generated/prisma/client";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
@@ -12,7 +12,7 @@ export class SamplerService {
   private interval: NodeJS.Timeout | undefined;
   private allSensors: Sensor[] = [];
   private sensorsToRecord: Sensor[] = [];
-  private activeSessionId: string | undefined;
+  private activeSessionId: number | undefined;
   private listeners: SamplerListener[] = [];
 
   constructor(private prisma: PrismaClient) {
@@ -31,9 +31,9 @@ export class SamplerService {
     return this.activeSessionId != null;
   }
 
-  public getActiveSessionId(): string {
+  public getActiveSessionId(): number | undefined {
     if ( ! this.activeSessionId) {
-      return "";
+      return undefined;
     }
     return this.activeSessionId;
   }
@@ -49,7 +49,7 @@ export class SamplerService {
   public async startRecording(
     sessionName: string,
     sampleRateMs: number,
-    sensorIdsToRecord: Set<string>,
+    sensorIdsToRecord: Set<number>,
     notes: string)
   : Promise<RecordSession | string> {
     if (this.isRecording()) {
@@ -136,16 +136,27 @@ export class SamplerService {
 
   private async collect() {
     const sensorsToSample = this.isRecording() ? this.sensorsToRecord : this.allSensors;
+
+    let sampleGroup: SampleGroup | undefined = undefined;
+    if (this.activeSessionId) {
+      sampleGroup = await this.prisma.sampleGroup.create({
+        data: {
+          sessionId: this.activeSessionId
+        }
+      });
+    }
+
     for (const sensor of sensorsToSample) {
       var tempC = await this.sampleSensor(sensor);
 
-      if (this.activeSessionId) {
-        // store sensor reading with the associated record session
-        await this.prisma.reading.create({
+      if (this.activeSessionId && sampleGroup) {
+        // store sensor samples
+        await this.prisma.sample.create({
           data: {
             tempC: tempC,
-            sessionId: this.activeSessionId,
             sensorId: sensor.id,
+            sessionId: this.activeSessionId,
+            sampleGroupId: sampleGroup.id
           }
         });
       }

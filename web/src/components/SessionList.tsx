@@ -1,14 +1,14 @@
 import SensorNames from "./SensorNames";
 
 export interface SessionSensor {
-  id: string;
-  sessionId: string;
-  sensorId: string;
+  id: number;
+  sessionId: number;
+  sensorId: number;
   name: string;
 };
 
 export interface RecordSession {
-    id: string;
+    id: number;
     name: string;
     startedAt: Date;
     endedAt: Date | null;
@@ -19,14 +19,14 @@ export interface RecordSession {
 
 interface Props {
   sessions: RecordSession[];
-  activeSessionId: string;
-  onDelete: (sessionId: string) => void;
-  onExport: (sessionId: string) => void;
+  activeSessionId: number | null;
+  onDelete: (sessionId: number) => void;
+  onExport: (sessionId: number) => void;
   onStop: () => void;
 }
 
 export default function SessionList({sessions, activeSessionId, onDelete, onExport, onStop}: Props) {
-  const handleDeleteClick = (sessionName: string, sessionId: string) => {
+  const handleDeleteClick = (sessionName: string, sessionId: number) => {
     if (confirm(`Are you sure you want to delete session '${sessionName}'?`)) {
         onDelete(sessionId);
     }

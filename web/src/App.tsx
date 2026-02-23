@@ -9,7 +9,7 @@ import type { RecordSession } from "./components/SessionList";
 import SessionList from "./components/SessionList";
 
 class ServerState {
-  activeSessionId: string = "";
+  activeSessionId: number | null = null;
 }
 
 function App() {
@@ -65,13 +65,13 @@ function App() {
 
     // build a set of sensorIds that were available prior to this update
     // we'll use this to detect if one of them disappeared
-    const prevAvailableSensorIds = new Set<string>;
+    const prevAvailableSensorIds = new Set<number>;
     for (const sensor of sensorOptions) {
       prevAvailableSensorIds.add(sensor.sensorId);
     }
 
     const newSensorOptions: SensorSelectionEntry[] = [];
-    const currAvailableSensorIds = new Set<string>;
+    const currAvailableSensorIds = new Set<number>;
     for (const sensor of sensors) {
       if ( ! sensor.available) {
         continue;
@@ -85,7 +85,7 @@ function App() {
       });
     }
 
-    const areSetsEqual = (a: Set<string>, b: Set<string>) =>
+    const areSetsEqual = (a: Set<number>, b: Set<number>) =>
       a.size === b.size &&
       [...a].every((x) => b.has(x));
     if ( ! areSetsEqual(prevAvailableSensorIds, currAvailableSensorIds)) {
@@ -121,7 +121,7 @@ function App() {
     return () => ws.close();
   }, []);
 
-  const handleNameChange = (sensorId: string, newName: string) => {
+  const handleNameChange = (sensorId: number, newName: string) => {
     fetch(`http://${baseUrl}/api/rename_sensor`, {
       method: "POST",
       headers: {
@@ -131,7 +131,7 @@ function App() {
     });
   };
 
-  const onStartSession = (sessionName: string, sampleRateMs: number, sensorIdsToRecord: string[], notes: string): void => {
+  const onStartSession = (sessionName: string, sampleRateMs: number, sensorIdsToRecord: number[], notes: string): void => {
     fetch(`http://${baseUrl}/api/start_session`, {
       method: "POST",
       headers: {
@@ -157,7 +157,7 @@ function App() {
     });
   };
 
-  const onSessionDelete = (sessionId: string) => {
+  const onSessionDelete = (sessionId: number) => {
     fetch(`http://${baseUrl}/api/delete_session`, {
       method: "POST",
       headers: {
@@ -173,7 +173,7 @@ function App() {
     });
   };
 
-  const onSessionExport = (sessionId: string) => {
+  const onSessionExport = (sessionId: number) => {
     // TODO implement export logic
   };
 
@@ -200,7 +200,7 @@ function App() {
         <SensorStatusList sensors={sensors}/>
       </div>
 
-      <div hidden={serverState.activeSessionId.length > 0}>
+      <div hidden={serverState.activeSessionId != null}>
         <h3>New Recording Session</h3>
         <SessionCreationForm
           sensorOptions={sensorOptions}

@@ -30,7 +30,7 @@ interface ServerMsg {
 }
 
 interface UI_SensorInfo {
-    sensorId: string;
+    sensorId: number;
     hardwareId: string;
     lastTempC: number;
     currentName: string;
@@ -61,7 +61,7 @@ export class ThermoServer implements SamplerListener {
         return this.samplerService.isRecording();
     }
 
-    public getActiveSessionId(): string {
+    public getActiveSessionId(): number | undefined {
         return this.samplerService.getActiveSessionId();
     }
 
@@ -85,13 +85,13 @@ export class ThermoServer implements SamplerListener {
         }
     }
 
-    public async renameSensor(sensorId: string, newName: string): Promise<REST_Response<string>> {
+    public async renameSensor(sensorId: number, newName: string): Promise<REST_Response<string>> {
         // valid inputs
         newName = newName.trim();
         if ( ! newName || newName.length === 0) {
             return {status: StatusCodes.BAD_REQUEST, error: "newName cannot be empty"};
-        } else if ( ! sensorId || sensorId.length === 0) {
-            return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be empty"};
+        } else if (isNaN(sensorId)) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be NaN"};
         }
         
         try {
@@ -150,7 +150,7 @@ export class ThermoServer implements SamplerListener {
     public async startSession(
         sessionName: string,
         sampleRateMs: number,
-        sensorIdsToRecord: string[],
+        sensorIdsToRecord: number[],
         notes: string)
     : Promise<REST_Response<RecordSession>> {
         if (this.samplerService.isRecording()) {
@@ -180,9 +180,9 @@ export class ThermoServer implements SamplerListener {
         return {status: StatusCodes.OK, error: "", result: result};
     }
 
-    public async deleteSession(sessionId: string): Promise<REST_Response<void>> {
-        if (sessionId.length == 0) {
-            return {status: StatusCodes.BAD_REQUEST, error: "sessionId can't be empty"};
+    public async deleteSession(sessionId: number): Promise<REST_Response<void>> {
+        if (isNaN(sessionId)) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sessionId cannot be NaN"};
         }
 
         try {
@@ -194,10 +194,11 @@ export class ThermoServer implements SamplerListener {
             }
 
             console.log(`deleting sessionId='${sessionId}' ...`);
-            const readingRes = await prisma.reading.deleteMany({where: {sessionId: sessionId}});
+            const sampleRes = await prisma.sample.deleteMany({where: {sessionId: sessionId}});
+            const groupRes = await prisma.sampleGroup.deleteMany({where: {sessionId: sessionId}});
             const sensorRes = await prisma.sessionSensor.deleteMany({where: {sessionId: sessionId}});
             await prisma.recordSession.delete({where: {id: sessionId}});
-            console.log(`session deleted! included removal of ${readingRes.count} Reading(s) and ${sensorRes.count} SessionSensor(s)`);
+            console.log(`session deleted! included removal of ${sampleRes.count} Samples(s), ${groupRes.count} SampleGroup(s), and ${sensorRes.count} SessionSensor(s)`);
             return {status: StatusCodes.OK, error: ""};
         } catch (e: any) {
             console.error('deleteSession - unexpected error: ', e);
