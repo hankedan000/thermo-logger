@@ -144,3 +144,6 @@ prisma/migrations/
 
 # database files
 *.db
+
+# ignore snapshots directory
+snapshots/
