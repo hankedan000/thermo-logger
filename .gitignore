@@ -142,5 +142,5 @@ vite.config.ts.timestamp-*
 generated/
 prisma/migrations/
 
-# development database file
-dev.db
+# database files
+*.db

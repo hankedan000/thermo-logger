@@ -1,6 +1,5 @@
 import { StatusCodes } from "http-status-codes";
-import { prisma } from "../db/prisma";
-import { Sensor } from "../generated/prisma/client";
+import { Prisma, PrismaClient, Sensor } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 import { RecordSession } from "../generated/prisma/browser";
@@ -51,11 +50,14 @@ export class REST_Response<RESULT_T> {
 }
 
 export class ThermoServer implements SamplerListener {
-    private samplerService: SamplerService = new SamplerService(prisma);
+    private prisma: PrismaClient;
+    private samplerService: SamplerService;
     private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
     private clients: ThermoClient[] = [];
 
-    constructor() {
+    constructor(prisma: PrismaClient) {
+        this.prisma = prisma;
+        this.samplerService = new SamplerService(prisma);
         this.samplerService.addListener(this);
     }
 
@@ -98,7 +100,7 @@ export class ThermoServer implements SamplerListener {
         
         try {
             // attempt to rename the sensor in the database
-            const sensor = await prisma.sensor.update({
+            const sensor = await this.prisma.sensor.update({
                 where: {id: sensorId},
                 data: {currentName: newName}
             });
@@ -120,7 +122,7 @@ export class ThermoServer implements SamplerListener {
         resp.result = [];
         for (const hwId of this.sensorStatusesByHwId.keys()) {
             const status = this.sensorStatusesByHwId.get(hwId);
-            const sensor = await prisma.sensor.findUnique({
+            const sensor = await this.prisma.sensor.findUnique({
                 where: {hardwareId: hwId}
             });
             if ( ! sensor || ! status) {
@@ -142,7 +144,7 @@ export class ThermoServer implements SamplerListener {
         const resp = new REST_Response<RecordSession[]>;
         resp.result = [];
         try {
-            resp.result = await prisma.recordSession.findMany({include: {sessionSensors: true}});
+            resp.result = await this.prisma.recordSession.findMany({include: {sessionSensors: true}});
         } catch (err: any) {
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to query record sessions"};
         }
@@ -196,10 +198,10 @@ export class ThermoServer implements SamplerListener {
             }
 
             console.log(`deleting sessionId='${sessionId}' ...`);
-            const sampleRes = await prisma.sample.deleteMany({where: {sessionId: sessionId}});
-            const groupRes = await prisma.sampleGroup.deleteMany({where: {sessionId: sessionId}});
-            const sensorRes = await prisma.sessionSensor.deleteMany({where: {sessionId: sessionId}});
-            await prisma.recordSession.delete({where: {id: sessionId}});
+            const sampleRes = await this.prisma.sample.deleteMany({where: {sessionId: sessionId}});
+            const groupRes = await this.prisma.sampleGroup.deleteMany({where: {sessionId: sessionId}});
+            const sensorRes = await this.prisma.sessionSensor.deleteMany({where: {sessionId: sessionId}});
+            await this.prisma.recordSession.delete({where: {id: sessionId}});
             console.log(`session deleted! included removal of ${sampleRes.count} Samples(s), ${groupRes.count} SampleGroup(s), and ${sensorRes.count} SessionSensor(s)`);
             return {status: StatusCodes.OK, error: ""};
         } catch (e: any) {
@@ -214,7 +216,7 @@ export class ThermoServer implements SamplerListener {
         }
 
         try {
-            await exportSessionToCsv(prisma, sessionId, "./export.csv");
+            await exportSessionToCsv(this.prisma, sessionId, "./export.csv");
         } catch (e: any) {
             console.error('deleteSession - unexpected error: ', e);
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete session"};
@@ -285,7 +287,7 @@ export class ThermoServer implements SamplerListener {
 
     private async getOrCreateDbSensor(hardwareId: string, isSimulated: boolean): Promise<Sensor> {
         // check if sensor already exists, if so return it
-        const existingSensor = await prisma.sensor.findUnique({
+        const existingSensor = await this.prisma.sensor.findUnique({
             where: { hardwareId: hardwareId }
         });
         if (existingSensor) {
@@ -294,7 +296,7 @@ export class ThermoServer implements SamplerListener {
         }
 
         // create a new sensor
-        const newSensor = await prisma.sensor.create({
+        const newSensor = await this.prisma.sensor.create({
             data: {
                 hardwareId: hardwareId,
                 isSimulated: isSimulated,

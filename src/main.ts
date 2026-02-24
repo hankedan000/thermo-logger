@@ -1,15 +1,18 @@
 import { createServer } from "http";
-import { prisma } from "./db/prisma";
 import { hideBin } from 'yargs/helpers';
 import { ThermoServer } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
+import * as Prisma from "./db/prisma";
 import * as fs from "fs";
 import cors from "cors";
 import express from "express";
 import path from "path";
 import yargs from 'yargs';
+import { PrismaClient } from "./generated/prisma/client";
 
 const DEFAULT_BACKEND_PORT = 3000;
+
+let prisma: PrismaClient | undefined;
 
 async function main() {
   const argv = yargs(hideBin(process.argv))
@@ -20,6 +23,11 @@ async function main() {
           default: DEFAULT_BACKEND_PORT,
           description: 'Port # to use for express app'
       })
+      .option('dbPath', {
+          type: 'string',
+          default: './thermo.db',
+          description: 'Path to database file'
+      })
       .option('config', {
           type: 'string',
           default: '',
@@ -28,10 +36,11 @@ async function main() {
       .alias('h', 'help')
       .parseSync();
 
+  prisma = Prisma.connect(`file:${argv.dbPath}`);
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
-  const thermoServer = new ThermoServer();
+  const thermoServer = new ThermoServer(prisma);
 
   if (argv.config.length > 0) {
       const raw = fs.readFileSync(argv.config, "utf-8");
@@ -110,10 +119,16 @@ async function main() {
 
 main()
   .then(async () => {
-    await prisma.$disconnect()
+    if (prisma) {
+      await prisma.$disconnect()
+      prisma = undefined;
+    }
   })
   .catch(async (e) => {
     console.error(e)
-    await prisma.$disconnect()
+    if (prisma) {
+      await prisma.$disconnect()
+      prisma = undefined;
+    }
     process.exit(1)
   })
