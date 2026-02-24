@@ -12,6 +12,7 @@ const MIN_SAMPLING_RATE_MS = 1000; // 1s
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
     public lastTempC: number = NaN;    // last reading we got
+    public isSimulated: boolean = false;
 }
 
 class ThermoClient {
@@ -220,15 +221,38 @@ export class ThermoServer implements SamplerListener {
         }
         return {status: StatusCodes.OK, error: ""};
     }
+  
+    public async onSensorSearch(availableHwIds: string[]) {
+        for (const status of this.sensorStatusesByHwId.values()) {
+            if ( ! status.isSimulated) {
+                status.available = false;// will get rasserted in loop below if sensor is still available
+            }
+        }
 
-    public onSensorSampled(sensor: Sensor, tempC: number): void {
-        const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
-        if (status) {
-            status.lastTempC = tempC;
+        for (const hardwareId of availableHwIds) {
+            const status = this.sensorStatusesByHwId.get(hardwareId);
+            if ( ! status) {
+                // load any newly discovered sensor into the server
+                await this.loadSensor(hardwareId, false);
+            } else {
+                status.available = true;
+            }
         }
     }
 
-    public async onCollectionComplete(): Promise<void> {
+    public onSensorSampled(sensor: Sensor, tempC: number) {
+        const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
+        if (status) {
+            if (isNaN(tempC)) {
+                status.available = false;
+            } else {
+                status.available = true;
+                status.lastTempC = tempC;
+            }
+        }
+    }
+
+    public async onCollectionComplete() {
         const restResp = await this.getUI_SensorInfos();
         if (restResp.result) {
             const msg = new SensorUpdateMsg();
@@ -246,11 +270,13 @@ export class ThermoServer implements SamplerListener {
         }
 
         const status = new SensorStatus();
+        status.isSimulated = isSimulated;
+        status.available = true;
         if (isSimulated) {
-            status.available = true;
             status.lastTempC = 23.0;
         } else {
-            // TODO test if sensor is available and get first temp reading
+            // temperature will be read immenantly because discovery occurs
+            // right before temperature collection.
         }
         const newSensor = await this.getOrCreateDbSensor(hardwareId, isSimulated);
         this.sensorStatusesByHwId.set(hardwareId, status);

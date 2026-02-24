@@ -1,9 +1,11 @@
 import { randomInt } from "node:crypto";
 import { PrismaClient, RecordSession, SampleGroup, Sensor } from "../generated/prisma/client";
+import { sensors, temperatureSync } from "ds18b20";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
 export interface SamplerListener {
+  onSensorSearch(availableHwIds: string[]): void;
   onSensorSampled(sensor: Sensor, tempC: number): void;
   onCollectionComplete(): void;
 }
@@ -139,13 +141,22 @@ export class SamplerService {
 
     let sampleGroup: SampleGroup | undefined = undefined;
     if (this.activeSessionId) {
+      // create a new SampleGroup if we have an active recording session going
       sampleGroup = await this.prisma.sampleGroup.create({
         data: {
           sessionId: this.activeSessionId
         }
       });
+    } else {
+      // not recording, so scan for ds18b20 temperature sensors
+      sensors((err: Error | null, ids: string[]) => {
+        for (const listener of this.listeners) {
+          listener.onSensorSearch(ids ? ids : []);
+        }
+      });
     }
 
+    // iterate over all sensors and collect their tempartures
     for (const sensor of sensorsToSample) {
       var tempC = await this.sampleSensor(sensor);
 
@@ -186,7 +197,11 @@ export class SamplerService {
       if (sensor.isSimulated) {
         tempC = randomInt(20, 26);
       } else {
-        // TODO do real onewire sensor reading
+        try {
+          tempC = temperatureSync(sensor.hardwareId);
+        } catch (e) {
+          // leave tempC as NaN in error case
+        }
       }
       return tempC;
   }
