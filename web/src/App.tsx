@@ -174,7 +174,17 @@ function App() {
   };
 
   const onSessionExport = (sessionId: number) => {
-    // TODO implement export logic
+    fetch(`http://${baseUrl}/api/export_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        sessionId: sessionId
+      }),
+    })
+    .then(() => {
+    });
   };
 
   const onSessionStop = () => {

@@ -4,6 +4,7 @@ import { Sensor } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 import { RecordSession } from "../generated/prisma/browser";
+import { exportSessionToCsv } from "../utils/csv";
 
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
@@ -204,6 +205,20 @@ export class ThermoServer implements SamplerListener {
             console.error('deleteSession - unexpected error: ', e);
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete session"};
         }
+    }
+
+    public async exportSession(sessionId: number): Promise<REST_Response<void>> {
+        if (isNaN(sessionId)) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sessionId cannot be NaN"};
+        }
+
+        try {
+            await exportSessionToCsv(prisma, sessionId, "./export.csv");
+        } catch (e: any) {
+            console.error('deleteSession - unexpected error: ', e);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete session"};
+        }
+        return {status: StatusCodes.OK, error: ""};
     }
 
     public onSensorSampled(sensor: Sensor, tempC: number): void {
