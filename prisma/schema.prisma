@@ -31,12 +31,14 @@ model SessionSensor {
 }
 
 model RecordSession {
-  id           Int       @id @default(autoincrement())
-  name         String
-  startedAt    DateTime  @default(now())
-  endedAt      DateTime?
-  sampleRateMs Int
-  notes        String    @default("")
+  id             Int       @id @default(autoincrement())
+  name           String
+  startedAt      DateTime  @default(now())
+  endedAt        DateTime?
+  sampleRateMs   Int
+  notes          String    @default("")
+  lastExportedAt DateTime?
+  exportPath     String? // filepath of exported data
 
   samples        Sample[]
   sessionSensors SessionSensor[]

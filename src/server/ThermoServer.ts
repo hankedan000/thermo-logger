@@ -1,12 +1,16 @@
 import { StatusCodes } from "http-status-codes";
-import { Prisma, PrismaClient, Sensor } from "../generated/prisma/client";
+import { PrismaClient, Sensor } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
-import { RecordSession } from "../generated/prisma/browser";
+import { RecordSession, SessionSensor } from "../generated/prisma/browser";
 import { exportSessionToCsv } from "../utils/csv";
+import path from "path";
+import { existsSync } from "fs";
 
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
+const TMP_DIR = '/tmp/thermo-logger'
+const TMP_EXPORTS_DIR = path.join(TMP_DIR, 'exports');
 
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
@@ -36,6 +40,17 @@ interface UI_SensorInfo {
     lastTempC: number;
     currentName: string;
     available: boolean;
+}
+
+interface UI_RecordSessionInfo {
+    id: number;
+    name: string;
+    startedAt: Date;
+    endedAt: Date | null;
+    sampleRateMs: number;
+    notes: string;
+    sessionSensors: SessionSensor[];
+    dataReadyForDownload: boolean;
 }
 
 class SensorUpdateMsg implements ServerMsg {
@@ -140,11 +155,28 @@ export class ThermoServer implements SamplerListener {
         return resp;
     }
 
-    public async getSessions(): Promise<REST_Response<RecordSession[]>> {
-        const resp = new REST_Response<RecordSession[]>;
+    public async getUI_RecordSessionInfos(): Promise<REST_Response<UI_RecordSessionInfo[]>> {
+        const resp = new REST_Response<UI_RecordSessionInfo[]>;
         resp.result = [];
         try {
-            resp.result = await this.prisma.recordSession.findMany({include: {sessionSensors: true}});
+            const sessions = await this.prisma.recordSession.findMany({include: {sessionSensors: true}});
+            for (const session of sessions) {
+                let dataReadyForDownload = false;
+                if (session.exportPath && existsSync(session.exportPath)) {
+                    dataReadyForDownload = true;
+                }
+
+                resp.result.push({
+                    id: session.id,
+                    name: session.name,
+                    startedAt: session.startedAt,
+                    endedAt: session.endedAt,
+                    sampleRateMs: session.sampleRateMs,
+                    notes: session.notes,
+                    sessionSensors: session.sessionSensors,
+                    dataReadyForDownload: dataReadyForDownload
+                })
+            }
         } catch (err: any) {
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to query record sessions"};
         }
@@ -216,10 +248,25 @@ export class ThermoServer implements SamplerListener {
         }
 
         try {
-            await exportSessionToCsv(this.prisma, sessionId, "./export.csv");
-        } catch (e: any) {
-            console.error('deleteSession - unexpected error: ', e);
-            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete session"};
+            console.log(`exporting sessionId '${sessionId}' ...`);
+            const exportPath = await exportSessionToCsv(
+                this.prisma,
+                sessionId,
+                TMP_EXPORTS_DIR);
+            
+            // update RecordSession to include latests export info
+            this.prisma.recordSession.update({
+                where: { id: sessionId },
+                data: {
+                    lastExportedAt: new Date(),
+                    exportPath: exportPath
+                }
+            });
+
+            console.log(`export complete! exportPath = '${exportPath}'`);
+        } catch (err: any) {
+            console.error('exportSession - unexpected error: ', err);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: `Failed to export session! err: ${err}`};
         }
         return {status: StatusCodes.OK, error: ""};
     }

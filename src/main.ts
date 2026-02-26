@@ -72,7 +72,7 @@ async function main() {
   });
 
   app.get("/api/sessions", async (req, res) => {
-    const restResp = await thermoServer.getSessions();
+    const restResp = await thermoServer.getUI_RecordSessionInfos();
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 
