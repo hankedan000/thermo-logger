@@ -41,6 +41,7 @@ async function main() {
   const wss = new WebSocketServer({ server });
   const thermoServer = new ThermoServer(`file:${argv.dbPath}`);
 
+  process.title = 'thermo-logger';
   process.on('SIGINT', async () => {
     console.log(`on SIGINT (pid=${process.pid})`);
     if (thermoServer) {

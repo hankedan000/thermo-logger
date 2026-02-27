@@ -10,7 +10,12 @@ NODE_MODULES_PATH="node_modules"
 
 source $SCRIPT_DIR/common.bash
 
-# TODO request app to stop recording and disconnect from database
+# put running app into an "UPDATING" state by sending the HANGUP signal.
+# this makes sure the app is no longer modifying the database, allowing
+# us to safely make a copy and upgrade it.
+logInfo "Requesting running instance to disconnect from database ..."
+sudo pkill -HUP -f thermo-logger
+sleep 5 # give it some extra time to disconnect
 
 thisUpdateRoot=$(realpath $SCRIPT_DIR/..)
 cd $thisUpdateRoot
@@ -49,9 +54,9 @@ fi
 if [ $doDryRun -eq 1 ]; then
     # run app on a different port to test that the update went okay
     node dist/main.js --port=3000 &
-    pid=$!
+    dryRunPID=$!
 
-    if kill -0 "$pid" 2>/dev/null; then
+    if kill -0 "$dryRunPID" 2>/dev/null; then
         logInfo "App dry run started! Go to http://localhost:3000 to test it out."
     else
         logError "App dry run seems to have failed to start"
@@ -59,14 +64,20 @@ if [ $doDryRun -eq 1 ]; then
     fi
 
     # wait for user to accept/reject the dry runned app
-    read -p "Accept dry run? (y/n): " answer
-    if [[ "$answer" != "y" ]]; then
-        logInfo "Dry run rejected!"
-        stopProcess $pid 5 # gracefully stop the app, but force kill after 5s
+    if read -t 60 -p "You have 60s to accept the update. (y/n): " answer; then
+        if [[ "$answer" != "y" ]]; then
+            logInfo "Update rejected!"
+            stopProcess $dryRunPID 5 # gracefully stop, but force kill after 5s
+            exit 0 # don't continue with install
+        fi
+    else
+        logInfo "Dry run timed out!"
+        stopProcess $dryRunPID 5 # gracefully stop, but force kill after 5s
         exit 0 # don't continue with install
     fi
 
-    stopProcess $pid 5 # gracefully stop the app, but force kill after 5s
+    # Update was accepted. Stop the dry run app first.
+    stopProcess $dryRunPID 5 # gracefully stop, but force kill after 5s
 fi
 
 sudo systemctl stop $APP_NAME

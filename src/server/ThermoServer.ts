@@ -8,7 +8,7 @@ import path from "path";
 import * as Prisma from "../db/prisma";
 import { existsSync } from "fs";
 
-const UPDATE_TIMEOUT_SEC = 60;
+const UPDATE_TIMEOUT_SEC = 120; // 2mins
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
 const TMP_DIR = '/tmp/thermo-logger'
