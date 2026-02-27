@@ -10,7 +10,7 @@ import { existsSync } from "fs";
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
 const TMP_DIR = '/tmp/thermo-logger'
-const TMP_EXPORTS_DIR = path.join(TMP_DIR, 'exports');
+export const TMP_EXPORTS_DIR = path.join(TMP_DIR, 'exports');
 
 export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
@@ -50,7 +50,7 @@ interface UI_RecordSessionInfo {
     sampleRateMs: number;
     notes: string;
     sessionSensors: SessionSensor[];
-    dataReadyForDownload: boolean;
+    downloadFile: string | null;
 }
 
 class SensorUpdateMsg implements ServerMsg {
@@ -161,9 +161,10 @@ export class ThermoServer implements SamplerListener {
         try {
             const sessions = await this.prisma.recordSession.findMany({include: {sessionSensors: true}});
             for (const session of sessions) {
-                let dataReadyForDownload = false;
+                let downloadFile: string | null = null;
                 if (session.exportPath && existsSync(session.exportPath)) {
-                    dataReadyForDownload = true;
+                    // just get the filename with the extension
+                    downloadFile = path.basename(session.exportPath);
                 }
 
                 resp.result.push({
@@ -174,7 +175,7 @@ export class ThermoServer implements SamplerListener {
                     sampleRateMs: session.sampleRateMs,
                     notes: session.notes,
                     sessionSensors: session.sessionSensors,
-                    dataReadyForDownload: dataReadyForDownload
+                    downloadFile: downloadFile
                 })
             }
         } catch (err: any) {
@@ -255,7 +256,7 @@ export class ThermoServer implements SamplerListener {
                 TMP_EXPORTS_DIR);
             
             // update RecordSession to include latests export info
-            this.prisma.recordSession.update({
+            await this.prisma.recordSession.update({
                 where: { id: sessionId },
                 data: {
                     lastExportedAt: new Date(),

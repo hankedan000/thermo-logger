@@ -15,9 +15,11 @@ export interface RecordSession {
     sampleRateMs: number;
     notes: string;
     sessionSensors: SessionSensor[];
+    downloadFile: string | null;
 };
 
 interface Props {
+  baseUrl: string;
   sessions: RecordSession[];
   activeSessionId: number | null;
   onDelete: (sessionId: number) => void;
@@ -25,7 +27,7 @@ interface Props {
   onStop: () => void;
 }
 
-export default function SessionList({sessions, activeSessionId, onDelete, onExport, onStop}: Props) {
+export default function SessionList({baseUrl, sessions, activeSessionId, onDelete, onExport, onStop}: Props) {
   const handleDeleteClick = (sessionName: string, sessionId: number) => {
     if (confirm(`Are you sure you want to delete session '${sessionName}'?`)) {
         onDelete(sessionId);
@@ -44,7 +46,10 @@ export default function SessionList({sessions, activeSessionId, onDelete, onExpo
 
       <td>
         <button hidden={session.id != activeSessionId} onClick={() => {onStop();}}>Stop</button>
-        <button hidden={session.id == activeSessionId} onClick={() => {onExport(session.id);}}>Download CSV</button>
+        <a hidden={session.downloadFile == null} href={session.downloadFile ? `http://${baseUrl}/api/download_session/${encodeURIComponent(session.downloadFile)}` : ""} download>
+          <button>Download</button>
+        </a>
+        <button hidden={session.id == activeSessionId} onClick={() => {onExport(session.id);}}>Export</button>
         <button hidden={session.id == activeSessionId} onClick={() => {handleDeleteClick(session.name, session.id);}}>Delete</button>
       </td>
     </tr>

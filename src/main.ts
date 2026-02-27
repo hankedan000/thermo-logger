@@ -1,6 +1,6 @@
-import { createServer } from "http";
+import { createServer, STATUS_CODES } from "http";
 import { hideBin } from 'yargs/helpers';
-import { ThermoServer } from "./server/ThermoServer"
+import { ThermoServer, TMP_EXPORTS_DIR } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
 import * as Prisma from "./db/prisma";
 import * as fs from "fs";
@@ -9,6 +9,7 @@ import express from "express";
 import path from "path";
 import yargs from 'yargs';
 import { PrismaClient } from "./generated/prisma/client";
+import { StatusCodes } from "http-status-codes";
 
 const DEFAULT_BACKEND_PORT = 3000;
 
@@ -104,6 +105,23 @@ async function main() {
   app.post("/api/export_session", async (req, res) => {
     const restResp = await thermoServer.exportSession(req.body.sessionId);
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.get("/api/download_session/:filename", async (req, res) => {
+    const filename = req.params.filename;
+    console.log(`download_session - filename='${filename}'`);
+
+    // Resolve full path, and check to prevent path traversal
+    const filePath = path.resolve(TMP_EXPORTS_DIR, filename);
+    if ( ! filePath.startsWith(TMP_EXPORTS_DIR)) {
+      return res.status(StatusCodes.BAD_REQUEST).send("Invalid filename");
+    }
+
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        res.status(StatusCodes.INTERNAL_SERVER_ERROR).end();
+      }
+    });
   });
 
   // Handle web socket connections

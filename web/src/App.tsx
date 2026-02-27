@@ -184,6 +184,7 @@ function App() {
       }),
     })
     .then(() => {
+      fetchLatestSessions();// to update if it's ready for download
     });
   };
 
@@ -193,7 +194,7 @@ function App() {
     })
     .then(() => {
       fetchLatestServerState();
-      fetchLatestSessions();
+      fetchLatestSessions();// to update if data can be exported, etc.
     });
   };
 
@@ -221,6 +222,7 @@ function App() {
       <h3>Recording Sessions</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
         <SessionList
+          baseUrl={baseUrl}
           sessions={sessions}
           activeSessionId={serverState.activeSessionId}
           onDelete={onSessionDelete}
