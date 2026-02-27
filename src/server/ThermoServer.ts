@@ -5,8 +5,10 @@ import { WebSocket } from "ws";
 import { RecordSession, SessionSensor } from "../generated/prisma/browser";
 import { exportSessionToCsv } from "../utils/csv";
 import path from "path";
+import * as Prisma from "../db/prisma";
 import { existsSync } from "fs";
 
+const UPDATE_TIMEOUT_SEC = 60;
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
 const TMP_DIR = '/tmp/thermo-logger'
@@ -16,6 +18,12 @@ export class SensorStatus {
     public available: boolean = false; // true if sensor is avaialbe on onewire bus
     public lastTempC: number = NaN;    // last reading we got
     public isSimulated: boolean = false;
+}
+
+export enum ServerState {
+    UNINITIALIZED = 'UNINITIALIZED', // default state (hasn't connected to database yet and isn't polling sensors)
+    OPERATING = 'OPERATING',         // connected to database, is polling sensors, can record
+    UPDATING = 'UPDATING'            // disconnected from database (ie. can't record)
 }
 
 class ThermoClient {
@@ -65,22 +73,102 @@ export class REST_Response<RESULT_T> {
 }
 
 export class ThermoServer implements SamplerListener {
-    private prisma: PrismaClient;
-    private samplerService: SamplerService;
+    private state: ServerState = ServerState.UNINITIALIZED
+    private prismaUrl: string;
+    private prisma: PrismaClient | undefined;
+    private samplerService: SamplerService | undefined;
     private sensorStatusesByHwId: Map<string, SensorStatus> = new Map();
     private clients: ThermoClient[] = [];
+    // timeout that puts server back to OPERATING if update is not accepted in time
+    private updateTimeout: NodeJS.Timeout | undefined;
 
-    constructor(prisma: PrismaClient) {
-        this.prisma = prisma;
-        this.samplerService = new SamplerService(prisma);
-        this.samplerService.addListener(this);
+    constructor(prismaUrl: string) {
+        this.prismaUrl = prismaUrl;
+    }
+
+    public async shutdown() {
+        await this.setState(ServerState.UNINITIALIZED);
+    }
+
+    public async setState(newState: ServerState): Promise<boolean> {
+        if (newState == this.state) {
+            return true; // nothing to do
+        }
+
+        // perform logic necessary to exit a state
+        switch (this.state) {
+            case ServerState.UNINITIALIZED:
+                // nothing to do
+                break;
+            case ServerState.OPERATING:
+                if (this.samplerService) {
+                    this.samplerService.shutdown();
+                    this.samplerService = undefined;
+                }
+                if (this.prisma) {
+                    await this.prisma.$disconnect();
+                    this.prisma = undefined;
+                }
+                break;
+            case ServerState.UPDATING:
+                if (this.updateTimeout) {
+                    clearTimeout(this.updateTimeout);
+                    this.updateTimeout = undefined;
+                }
+                break;
+        }
+
+        // perform logic necessary to enter a state
+        switch (newState) {
+            case ServerState.UNINITIALIZED:
+                // nothing to do
+                break;
+            case ServerState.OPERATING:
+                try {
+                    this.prisma = Prisma.connect(this.prismaUrl);
+                    this.samplerService = new SamplerService(this.prisma);
+                    this.samplerService.addListener(this);
+                } catch (err: any) {
+                    console.error(`Failed to transition to OPERATING! err: ${err}`);
+                    if (this.prisma) {
+                        this.prisma.$disconnect();
+                        this.prisma = undefined;
+                    }
+                    if (this.samplerService) {
+                        this.samplerService = undefined;
+                    }
+                    return false;
+                }
+                break;
+            case ServerState.UPDATING:
+                this.updateTimeout = setTimeout(() => {
+                    console.log(`update timed out after ${UPDATE_TIMEOUT_SEC}s.`);
+                    this.setState(ServerState.OPERATING);
+                }, UPDATE_TIMEOUT_SEC * 1000);
+                break;
+        }
+
+        // accept the new state
+        this.state = newState;
+        console.log(`transitioned to '${this.state}' (pid=${process.pid}).`);
+        return true;
+    }
+
+    public getServerState(): ServerState {
+        return this.state;
     }
 
     public isRecording(): boolean {
+        if ( ! this.samplerService) {
+            return false;
+        }
         return this.samplerService.isRecording();
     }
 
     public getActiveSessionId(): number | undefined {
+        if ( ! this.samplerService) {
+            return undefined;
+        }
         return this.samplerService.getActiveSessionId();
     }
 
@@ -105,6 +193,10 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async renameSensor(sensorId: number, newName: string): Promise<REST_Response<string>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't rename sensors while server is '${this.state}'`};
+        }
+
         // valid inputs
         newName = newName.trim();
         if ( ! newName || newName.length === 0) {
@@ -133,6 +225,10 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async getUI_SensorInfos(): Promise<REST_Response<UI_SensorInfo[]>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't get sensor info while server is '${this.state}'`};
+        }
+        
         const resp = new REST_Response<UI_SensorInfo[]>;
         resp.result = [];
         for (const hwId of this.sensorStatusesByHwId.keys()) {
@@ -156,6 +252,10 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async getUI_RecordSessionInfos(): Promise<REST_Response<UI_RecordSessionInfo[]>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't get RecordSessions info while server is '${this.state}'`};
+        }
+
         const resp = new REST_Response<UI_RecordSessionInfo[]>;
         resp.result = [];
         try {
@@ -190,7 +290,9 @@ export class ThermoServer implements SamplerListener {
         sensorIdsToRecord: number[],
         notes: string)
     : Promise<REST_Response<RecordSession>> {
-        if (this.samplerService.isRecording()) {
+        if ( ! this.samplerService) {
+            return {status: StatusCodes.CONFLICT, error: `Can't start RecordSessions while server is '${this.state}'`};
+        } else if (this.samplerService.isRecording()) {
             return {status: StatusCodes.CONFLICT, error: "Can't start a new recording while one is running. Stop recording first."};
         } else if (sensorIdsToRecord.length == 0) {
             return {status: StatusCodes.BAD_REQUEST, error: "Must select sensors to record before starting a session."};
@@ -210,6 +312,10 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async stopSession(): Promise<REST_Response<RecordSession>> {
+        if ( ! this.samplerService) {
+            return {status: StatusCodes.CONFLICT, error: `Can't stop RecordSessions while server is '${this.state}'`};
+        }
+
         const result = await this.samplerService.stopRecording();
         if (typeof result === 'string') {
             return {status: StatusCodes.BAD_REQUEST, error: result};
@@ -218,7 +324,9 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async deleteSession(sessionId: number): Promise<REST_Response<void>> {
-        if (isNaN(sessionId)) {
+        if ( ! this.prisma || ! this.samplerService) {
+            return {status: StatusCodes.CONFLICT, error: `Can't delete RecordSessions while server is '${this.state}'`};
+        } else if (isNaN(sessionId)) {
             return {status: StatusCodes.BAD_REQUEST, error: "sessionId cannot be NaN"};
         }
 
@@ -244,7 +352,9 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async exportSession(sessionId: number): Promise<REST_Response<void>> {
-        if (isNaN(sessionId)) {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't export RecordSessions while server is '${this.state}'`};
+        } else if (isNaN(sessionId)) {
             return {status: StatusCodes.BAD_REQUEST, error: "sessionId cannot be NaN"};
         }
 
@@ -314,7 +424,10 @@ export class ThermoServer implements SamplerListener {
     }
 
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
-        if (hardwareId in this.sensorStatusesByHwId) {
+        if ( ! this.samplerService) {
+            console.warn(`can't load senors while server is '${this.state}'`);
+            return;
+        } else if (hardwareId in this.sensorStatusesByHwId) {
             console.warn(`sensor '${hardwareId}' already loaded`);
             return;
         }
@@ -329,11 +442,18 @@ export class ThermoServer implements SamplerListener {
             // right before temperature collection.
         }
         const newSensor = await this.getOrCreateDbSensor(hardwareId, isSimulated);
-        this.sensorStatusesByHwId.set(hardwareId, status);
-        this.samplerService.addDiscoveredSensor(newSensor);
+        if (newSensor) {
+            this.sensorStatusesByHwId.set(hardwareId, status);
+            this.samplerService.addDiscoveredSensor(newSensor);
+        }
     }
 
-    private async getOrCreateDbSensor(hardwareId: string, isSimulated: boolean): Promise<Sensor> {
+    private async getOrCreateDbSensor(hardwareId: string, isSimulated: boolean): Promise<Sensor | undefined> {
+        if ( ! this.prisma) {
+            console.warn(`can't create database sensors while server is '${this.state}'`);
+            return undefined;
+        }
+
         // check if sensor already exists, if so return it
         const existingSensor = await this.prisma.sensor.findUnique({
             where: { hardwareId: hardwareId }

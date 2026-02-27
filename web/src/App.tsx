@@ -11,11 +11,24 @@ import MemoryUsage from "./components/MemoryUsage";
 
 class ServerStatus {
   version: string = 'UNKNOWN';
+  serverState: 'UNKNOWN' | 'UNINITIALIZE' | 'OPERATING' | 'UPDATING' = 'UNKNOWN';
   activeSessionId: number | null = null;
   totalRAM: number = 0;
   freeRAM: number = 0;
   totalDisk: number = 0;
   freeDisk: number = 0;
+}
+
+function serverStateToColor(state: string) {
+  switch (state) {
+    case 'UNINITIALIZE':
+      return 'red';
+    case 'OPERATING':
+      return 'green';
+    case 'UPDATING':
+      return 'orange';
+  }
+  return 'white';
 }
 
 function App() {
@@ -216,11 +229,15 @@ function App() {
     <div style={{ padding: "2rem" }}>
       <h3>Status</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
-        <div>Version: {serverStatus.version}</div>
         <StatusIndicator
-          labelText="Status: "
+          labelText=""
           statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
           color={connectedToServer ? 'green' : 'red'}/>
+        <div>Version: {serverStatus.version}</div>
+        <StatusIndicator
+          labelText="Server State: "
+          statusText={serverStatus.serverState}
+          color={serverStateToColor(serverStatus.serverState)}/>
         <div>RAM Usage: <MemoryUsage totalMem={serverStatus.totalRAM} freeMem={serverStatus.freeRAM}/></div>
         <div>Disk Usage: <MemoryUsage totalMem={serverStatus.totalDisk} freeMem={serverStatus.freeDisk}/></div>
 

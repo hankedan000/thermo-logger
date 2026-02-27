@@ -1,22 +1,18 @@
-import { createServer, STATUS_CODES } from "http";
+import { createServer } from "http";
 import { hideBin } from 'yargs/helpers';
-import { ThermoServer, TMP_EXPORTS_DIR } from "./server/ThermoServer"
+import { ServerState, ThermoServer, TMP_EXPORTS_DIR } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
-import * as Prisma from "./db/prisma";
 import * as fs from "fs";
 import * as os from "os";
 import cors from "cors";
 import express from "express";
 import path from "path";
 import yargs from 'yargs';
-import { PrismaClient } from "./generated/prisma/client";
 import { StatusCodes } from "http-status-codes";
 import checkDiskSpace from "check-disk-space";
 
 const DEFAULT_BACKEND_PORT = 3000;
 const { version } = require("../package.json");
-
-let prisma: PrismaClient | undefined;
 
 async function main() {
   const argv = yargs(hideBin(process.argv))
@@ -40,11 +36,38 @@ async function main() {
       .alias('h', 'help')
       .parseSync();
 
-  prisma = Prisma.connect(`file:${argv.dbPath}`);
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
-  const thermoServer = new ThermoServer(prisma);
+  const thermoServer = new ThermoServer(`file:${argv.dbPath}`);
+
+  process.on('SIGINT', async () => {
+    console.log(`on SIGINT (pid=${process.pid})`);
+    if (thermoServer) {
+      await thermoServer.shutdown();
+      process.exit(0);
+    }
+  });
+
+  process.on('SIGTERM', async () => {
+    console.log(`on SIGTERM (pid=${process.pid})`);
+    if (thermoServer) {
+      await thermoServer.shutdown();
+      process.exit(0);
+    }
+  });
+
+  process.on('SIGHUP', async () => {
+    console.log(`on SIGHUP (pid=${process.pid})`);
+    if (thermoServer) {
+      await thermoServer.setState(ServerState.UPDATING);
+    }
+  });
+
+  if ( ! await thermoServer.setState(ServerState.OPERATING)) {
+    console.error('Failed to transition server to OPERATING');
+    process.exit(1);
+  }
 
   if (argv.config.length > 0) {
       const raw = fs.readFileSync(argv.config, "utf-8");
@@ -68,6 +91,7 @@ async function main() {
     const disk = await checkDiskSpace('/');
     res.json({
       'version': version,
+      'serverState': thermoServer.getServerState() as string,
       'activeSessionId': thermoServer.getActiveSessionId(),
       'totalRAM': os.totalmem(),
       'freeRAM': os.freemem(),
@@ -145,17 +169,3 @@ async function main() {
 }
 
 main()
-  .then(async () => {
-    if (prisma) {
-      await prisma.$disconnect()
-      prisma = undefined;
-    }
-  })
-  .catch(async (e) => {
-    console.error(e)
-    if (prisma) {
-      await prisma.$disconnect()
-      prisma = undefined;
-    }
-    process.exit(1)
-  })

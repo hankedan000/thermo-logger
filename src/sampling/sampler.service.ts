@@ -21,6 +21,17 @@ export class SamplerService {
     this.restartSamplingInterval(DEFAULT_SAMPLE_INTERVAL_MS);
   }
 
+  public shutdown(): void {
+    if (this.interval) {
+      clearInterval(this.interval);
+      this.interval = undefined;
+    }
+    this.allSensors = [];
+    this.sensorsToRecord = [];
+    this.activeSessionId = undefined;
+    this.listeners = [];
+  }
+
   public addListener(newListener: SamplerListener): void {
     this.listeners.push(newListener);
   }
