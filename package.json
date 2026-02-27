@@ -7,6 +7,7 @@
     "dev": "npx tsx --watch src/main.ts",
     "dev_sim": "npx tsx --watch src/main.ts --config config/sim_config.json",
     "build": "prisma generate && tsc",
+    "db:init": "prisma migrate dev --name init",
     "db:migrate": "prisma migrate dev",
     "web:install": "cd web/ && npm install",
     "web:build": "cd web/ && npm run build",

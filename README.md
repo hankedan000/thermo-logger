@@ -1,10 +1,18 @@
 # thermo-logger
 Raspberry Pi based temperature logger
 
-# Quick Start (dev)
+# Quick Start (simulated dev environment)
 ```bash
+# do these commands once
 npm install
-npx prisma generate # generates typescript code based on schema
-npx prisma migrate dev --name init # creates the initial dev.db database
-npx tsx src/main.ts --config config/sim_config.json # run server in simulation mode
+npm run build # generates backend database from scheme
+npm run db:init # creates the initial dev.db database
+npm run web:build # generates react web UI
+
+# start the backend server app (watches for changes)
+npm run dev_sim
+
+# ... in another shell
+cd web
+npm run dev # starts the vite web UI
 ```
