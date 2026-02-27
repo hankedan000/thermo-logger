@@ -21,6 +21,7 @@
     "@prisma/adapter-better-sqlite3": "^7.4.0",
     "@prisma/client": "^7.4.0",
     "@types/better-sqlite3": "^7.6.13",
+    "check-disk-space": "^3.4.0",
     "cors": "^2.8.6",
     "ds18b20": "^0.1.0",
     "express": "^5.2.1",

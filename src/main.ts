@@ -4,14 +4,17 @@ import { ThermoServer, TMP_EXPORTS_DIR } from "./server/ThermoServer"
 import { WebSocketServer } from 'ws';
 import * as Prisma from "./db/prisma";
 import * as fs from "fs";
+import * as os from "os";
 import cors from "cors";
 import express from "express";
 import path from "path";
 import yargs from 'yargs';
 import { PrismaClient } from "./generated/prisma/client";
 import { StatusCodes } from "http-status-codes";
+import checkDiskSpace from "check-disk-space";
 
 const DEFAULT_BACKEND_PORT = 3000;
+const { version } = require("../package.json");
 
 let prisma: PrismaClient | undefined;
 
@@ -61,9 +64,15 @@ async function main() {
   // Routes
   app.use(express.static(path.join(__dirname, "../web/dist")));
 
-  app.get("/api/server_state", async (req, res) => {
+  app.get("/api/server_status", async (req, res) => {
+    const disk = await checkDiskSpace('/');
     res.json({
-      'activeSessionId': thermoServer.getActiveSessionId()
+      'version': version,
+      'activeSessionId': thermoServer.getActiveSessionId(),
+      'totalRAM': os.totalmem(),
+      'freeRAM': os.freemem(),
+      'totalDisk': disk.size,
+      'freeDisk': disk.free
     });
   });
 

@@ -7,9 +7,15 @@ import SessionCreationForm from "./components/SessionCreationForm";
 import type { SensorSelectionEntry } from "./components/SensorSelectionList";
 import type { RecordSession } from "./components/SessionList";
 import SessionList from "./components/SessionList";
+import MemoryUsage from "./components/MemoryUsage";
 
-class ServerState {
+class ServerStatus {
+  version: string = 'UNKNOWN';
   activeSessionId: number | null = null;
+  totalRAM: number = 0;
+  freeRAM: number = 0;
+  totalDisk: number = 0;
+  freeDisk: number = 0;
 }
 
 function App() {
@@ -21,22 +27,22 @@ function App() {
   } else {
     // assume production case where websocket matches http server port
   }
-  const [serverState, setServerState] = useState<ServerState>(new ServerState());
+  const [serverStatus, setServerStatus] = useState<ServerStatus>(new ServerStatus());
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
   const [sessions, setSessions] = useState<RecordSession[]>([]);
 
-  const fetchLatestServerState = () => {
-    fetch(`http://${baseUrl}/api/server_state`)
+  const fetchLatestServerStatus = () => {
+    fetch(`http://${baseUrl}/api/server_status`)
       .then(resp => {
         return resp.json();
       })
-      .then(newState => {
-        if (newState) {
-          setServerState(newState);
+      .then(newStatus => {
+        if (newStatus) {
+          setServerStatus(newStatus);
         } else {
-          setServerState(new ServerState());
+          setServerStatus(new ServerStatus());
         }
       });
   };
@@ -118,9 +124,10 @@ function App() {
       ws.addEventListener('close', () => {
         processLatestSensorInfo([]);
         setConnectedToServer(false);
+        setServerStatus(new ServerStatus());
       });
 
-      fetchLatestServerState();
+      fetchLatestServerStatus();
       fetchLatestSensorInfo();
       fetchLatestSessions();
     };
@@ -158,7 +165,7 @@ function App() {
       if ( ! data.result && data.error.length >= 0) {
         alert(data.error);
       } else {
-        fetchLatestServerState();
+        fetchLatestServerStatus();
         fetchLatestSessions();
       }
     });
@@ -175,7 +182,7 @@ function App() {
       }),
     })
     .then(() => {
-      fetchLatestServerState();
+      fetchLatestServerStatus();
       fetchLatestSessions();
     });
   };
@@ -200,7 +207,7 @@ function App() {
       method: "POST"
     })
     .then(() => {
-      fetchLatestServerState();
+      fetchLatestServerStatus();
       fetchLatestSessions();// to update if data can be exported, etc.
     });
   };
@@ -209,16 +216,19 @@ function App() {
     <div style={{ padding: "2rem" }}>
       <h3>Status</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
+        <div>Version: {serverStatus.version}</div>
         <StatusIndicator
-          labelText="Server: "
+          labelText="Status: "
           statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
           color={connectedToServer ? 'green' : 'red'}/>
+        <div>RAM Usage: <MemoryUsage totalMem={serverStatus.totalRAM} freeMem={serverStatus.freeRAM}/></div>
+        <div>Disk Usage: <MemoryUsage totalMem={serverStatus.totalDisk} freeMem={serverStatus.freeDisk}/></div>
 
         Sensors:
         <SensorStatusList sensors={sensors}/>
       </div>
 
-      <div hidden={serverState.activeSessionId != null}>
+      <div hidden={serverStatus.activeSessionId != null}>
         <h3>New Recording Session</h3>
         <SessionCreationForm
           sensorOptions={sensorOptions}
@@ -231,7 +241,7 @@ function App() {
         <SessionList
           baseUrl={baseUrl}
           sessions={sessions}
-          activeSessionId={serverState.activeSessionId}
+          activeSessionId={serverStatus.activeSessionId}
           onDelete={onSessionDelete}
           onExport={onSessionExport}
           onStop={onSessionStop}/>
