@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-APP_DIR=$(realpath $SCRIPT_DIR/../)
 
 source $SCRIPT_DIR/common.bash
 
-logInfo "Checking current version of app at '$APP_DIR' ..."
-currentVer=$(node -p "require('$APP_DIR/package.json').version")
+thisAppDir=$(realpath $SCRIPT_DIR/../)
+logInfo "Checking current version of app at '$thisAppDir' ..."
+currentVer=$(node -p "require('$thisAppDir/package.json').version")
 parseVersion $currentVer
 if [ $? -eq 1 ]; then
     logError "Failed to parse current version! (currentVer='$currentVer')"

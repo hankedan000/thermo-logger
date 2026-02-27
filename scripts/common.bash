@@ -1,7 +1,9 @@
-REPO="hankedan000/thermo-logger"
-TMP_DIR="/tmp/thermo-logger"
+APP_NAME="thermo-logger"
+REPO="hankedan000/$APP_NAME"
+TMP_DIR="/tmp/$APP_NAME"
 DOWNLOADS_DIR="$TMP_DIR/downloads"
 UPDATE_DIR="$TMP_DIR/update"
+APP_INSTALL_ROOT="/opt/$APP_NAME"
 
 function logInfo() {
   echo "[INFO] $*" >&2
