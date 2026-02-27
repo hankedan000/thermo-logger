@@ -145,5 +145,5 @@ prisma/migrations/
 # database files
 *.db
 
-# ignore snapshots directory
-snapshots/
+# ignore packaged release artifacts
+thermo-logger*.tar.gz

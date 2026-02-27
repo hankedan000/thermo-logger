@@ -30,7 +30,10 @@ tar -czf $tarName                    \
     dist/                            \
     web/dist/                        \
     scripts/thermo-logger.service    \
-    scripts/install.bash             \
-    scripts/upgrade.bash             \
+    scripts/checkForUpdate.bash      \
+    scripts/common.bash              \
+    scripts/downloadUpdateTar.bash   \
+    scripts/installUpdateTar.bash    \
+    scripts/selfInstall.bash         \
     prisma.config.ts                 \
     prisma/schema.prisma
