@@ -10,8 +10,7 @@ NODE_MODULES_PATH="node_modules"
 
 source $SCRIPT_DIR/common.bash
 
-logInfo "Stopping services ..."
-sudo systemctl stop $APP_NAME
+# TODO request app to stop recording and disconnect from database
 
 thisUpdateRoot=$(realpath $SCRIPT_DIR/..)
 cd $thisUpdateRoot
@@ -48,20 +47,39 @@ else
 fi
 
 if [ $doDryRun -eq 1 ]; then
-    # TODO do a dry-run of the app to make migrations went okay, etc.
-    logInfo "TODO - implement dry-run logic"
+    # run app on a different port to test that the update went okay
+    node dist/main.js --port=3000 &
+    pid=$!
+
+    if kill -0 "$pid" 2>/dev/null; then
+        logInfo "App dry run started! Go to http://localhost:3000 to test it out."
+    else
+        logError "App dry run seems to have failed to start"
+        exit 1
+    fi
+
+    # wait for user to accept/reject the dry runned app
+    read -p "Accept dry run? (y/n): " answer
+    if [[ "$answer" != "y" ]]; then
+        logInfo "Dry run rejected!"
+        stopProcess $pid 5 # gracefully stop the app, but force kill after 5s
+        exit 0 # don't continue with install
+    fi
+
+    stopProcess $pid 5 # gracefully stop the app, but force kill after 5s
 fi
+
+sudo systemctl stop $APP_NAME
 
 # install the update
 logInfo "Installing app ..."
+sudo mv $SCRIPT_DIR/*.service /etc/systemd/system/
 sudo mkdir -p $APP_INSTALL_ROOT # if it didn't exist already
 sudo rm -rf $APP_INSTALL_ROOT/* # remove old install if it existed
 sudo mv $thisUpdateRoot/* $APP_INSTALL_ROOT/
 sudo rm -f $APP_INSTALL_ROOT/scripts/selfInstall.bash # don't need this once we're done
-sudo rm -f $APP_INSTALL_ROOT/scripts/*.service # don't need service files in here
 
 logInfo "Installing systemd units ..."
-sudo cp $SCRIPT_DIR/*.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable $APP_NAME
 

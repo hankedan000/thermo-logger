@@ -24,3 +24,32 @@ function parseVersion() {
         return 1
     fi
 }
+
+function stopProcess() {
+  local pid="$1"
+  local timeout="${2:-10}"   # default 10 seconds
+
+  if ! kill -0 "$pid" 2>/dev/null; then
+    logError "Process $pid is not running"
+    return 0
+  fi
+
+  logInfo "Sending SIGTERM to $pid..."
+  kill "$pid"
+
+  # Wait up to timeout seconds
+  for ((i=0; i<timeout; i++)); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      logInfo "Process exited gracefully"
+      wait "$pid" 2>/dev/null
+      return 0
+    fi
+    sleep 1
+  done
+
+  logInfo "Timeout reached. Sending SIGKILL..."
+  kill -9 "$pid"
+
+  wait "$pid" 2>/dev/null
+  logInfo "Process force killed"
+}

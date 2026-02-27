@@ -13,7 +13,14 @@ class ServerState {
 }
 
 function App() {
-  const baseUrl = `${location.hostname}:3000`;
+  let baseUrl = location.host;
+  if (location.host.endsWith(':5173')) {
+    // when running directly from vite (port 5173), assume backend
+    // server is running in dev mode (port 3000)
+    baseUrl = `${location.hostname}:3000`;
+  } else {
+    // assume production case where websocket matches http server port
+  }
   const [serverState, setServerState] = useState<ServerState>(new ServerState());
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
