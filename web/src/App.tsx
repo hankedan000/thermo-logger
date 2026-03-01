@@ -8,6 +8,9 @@ import type { SensorSelectionEntry } from "./components/SensorSelectionList";
 import type { RecordSession } from "./components/SessionList";
 import SessionList from "./components/SessionList";
 import MemoryUsage from "./components/MemoryUsage";
+import * as GithubUtils from "./utils/github";
+import { Version } from "./utils/version";
+import VersionInfo from "./components/VersionInfo";
 
 class ServerStatus {
   version: string = 'UNKNOWN';
@@ -45,6 +48,7 @@ function App() {
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
   const [sessions, setSessions] = useState<RecordSession[]>([]);
+  const [latestRelInfo, setLatestRelInfo] = useState<GithubUtils.ReleaseInfo | undefined>();
 
   const fetchLatestServerStatus = () => {
     fetch(`http://${baseUrl}/api/server_status`)
@@ -119,6 +123,7 @@ function App() {
     }
   }
 
+  // perform initial logic once (ie. not on each redraw/update)
   useEffect(() => {
     const ws = new ReconnectingWebSocket(`ws://${baseUrl}`, 1000, 1000);
 
@@ -145,7 +150,22 @@ function App() {
       fetchLatestSessions();
     };
 
-    return () => ws.close();
+    // fetch latest github release info.
+    // Note: in a timeout since we can't perform async functions in a useEffect.
+    setTimeout(async () => {
+      try {
+        const relInfo = await GithubUtils.getLatestRelease('hankedan000', 'thermo-logger');
+        setLatestRelInfo(relInfo);
+      } catch (err: any) {
+        console.log('Failed to fetch latest github release info. err: ', err);
+        setLatestRelInfo(undefined);
+      }
+    }, 100);
+
+    // cleanup when component closes
+    return () => {
+      ws.close();
+    }
   }, []);
 
   const handleNameChange = (sensorId: number, newName: string) => {
@@ -225,6 +245,15 @@ function App() {
     });
   };
 
+  let currVersion: Version | undefined = undefined;
+  if (serverStatus.version != 'UNKNOWN') {
+    try {
+      currVersion = Version.parse(serverStatus.version);
+    } catch (err: any) {
+      console.log(`failed to parse server Version from '${serverStatus.version}. err: `, err);
+    }
+  }
+
   return (
     <div style={{ padding: "2rem" }}>
       <h3>Status</h3>
@@ -233,7 +262,7 @@ function App() {
           labelText=""
           statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
           color={connectedToServer ? 'green' : 'red'}/>
-        <div>Version: {serverStatus.version}</div>
+        <div>Version: <VersionInfo currentVersion={currVersion} latestVersionInfo={latestRelInfo}/></div>
         <StatusIndicator
           labelText="Server State: "
           statusText={serverStatus.serverState}
