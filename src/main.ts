@@ -10,6 +10,7 @@ import path from "path";
 import yargs from 'yargs';
 import { StatusCodes } from "http-status-codes";
 import checkDiskSpace from "check-disk-space";
+import { Version } from "./utils/version";
 
 const DEFAULT_BACKEND_PORT = 3000;
 const { version } = require("../package.json");
@@ -40,6 +41,7 @@ async function main() {
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
   const thermoServer = new ThermoServer(`file:${argv.dbPath}`);
+  const currVersion = Version.parse(version);
 
   process.title = 'thermo-logger';
   process.on('SIGINT', async () => {
@@ -156,6 +158,28 @@ async function main() {
         res.status(StatusCodes.INTERNAL_SERVER_ERROR).end();
       }
     });
+  });
+
+  app.post("/api/start_server_update", async (req, res) => {
+    console.log(`start_server_update - newVersion = '${req.body.newVersion}'`);
+    let newVersion: Version | undefined = undefined;
+    try {
+      newVersion = Version.parse(req.body.newVersion);
+    } catch (err: any) {
+      res.status(StatusCodes.BAD_REQUEST).json(
+        {error: 'Failed to parse requested newVersion.'});
+      return;
+    }
+
+    // make sure the version is newer than our current
+    if (newVersion && newVersion.compare(currVersion) <= 0) {
+      res.status(StatusCodes.BAD_REQUEST).json(
+        {error: `Requested version (${newVersion.toString()}) must be >= current version (${currVersion.toString()}).`});
+      return;
+    }
+
+    const restResp = await thermoServer.startServerUpdate(newVersion);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 
   // Handle web socket connections

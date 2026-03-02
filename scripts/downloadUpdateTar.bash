@@ -22,6 +22,6 @@ fi
 mkdir -p $DOWNLOADS_DIR # make the dir if doesn't exist yet
 cd $DOWNLOADS_DIR
 
-url="https://github.com/$REPO/releases/latest/download/$APP_NAME-v$major.$minor.$patch.tar.gz"
+url="https://github.com/$REPO/releases/download/v$major.$minor.$patch/$APP_NAME-v$major.$minor.$patch.tar.gz"
 logInfo "Downloading update '$url' ..."
 curl -L -o update.tar.gz $url

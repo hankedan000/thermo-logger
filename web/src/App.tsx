@@ -245,6 +245,21 @@ function App() {
     });
   };
 
+  const onStartServerUpdate = (newVersion: Version) => {
+    fetch(`http://${baseUrl}/api/export_session`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        newVersion: newVersion.toString()
+      }),
+    })
+    .then(() => {
+      fetchLatestServerStatus();
+    });
+  }
+
   let currVersion: Version | undefined = undefined;
   if (serverStatus.version != 'UNKNOWN') {
     try {
@@ -262,7 +277,7 @@ function App() {
           labelText=""
           statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
           color={connectedToServer ? 'green' : 'red'}/>
-        <div>Version: <VersionInfo currentVersion={currVersion} latestVersionInfo={latestRelInfo}/></div>
+        <div>Version: <VersionInfo currentVersion={currVersion} latestVersionInfo={latestRelInfo} startServerUpdate={onStartServerUpdate}/></div>
         <StatusIndicator
           labelText="Server State: "
           statusText={serverStatus.serverState}

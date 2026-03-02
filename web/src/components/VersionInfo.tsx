@@ -4,9 +4,10 @@ import { Version } from "../utils/version";
 interface Props {
     currentVersion: Version | undefined;
     latestVersionInfo: ReleaseInfo | undefined;
+    startServerUpdate: (newVersion: Version) => void;
 }
 
-export default function VersionInfo({ currentVersion, latestVersionInfo }: Props) {
+export default function VersionInfo({ currentVersion, latestVersionInfo, startServerUpdate }: Props) {
     let latestVersion: Version | undefined = undefined;
     let relInfoUrl: string = '';
     if (latestVersionInfo) {
@@ -37,7 +38,9 @@ export default function VersionInfo({ currentVersion, latestVersionInfo }: Props
     }
 
     const updateNowClicked = () => {
-        console.log(latestVersionInfo);
+        if (latestVersion) {
+            startServerUpdate(latestVersion);
+        }
     };
 
     return (

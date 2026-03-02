@@ -7,6 +7,7 @@ import { exportSessionToCsv } from "../utils/csv";
 import path from "path";
 import * as Prisma from "../db/prisma";
 import { existsSync } from "fs";
+import { Version } from "../utils/version";
 
 const UPDATE_TIMEOUT_SEC = 120; // 2mins
 const MAX_CLIENT_CONNECTIONS = 10;
@@ -379,6 +380,11 @@ export class ThermoServer implements SamplerListener {
             console.error('exportSession - unexpected error: ', err);
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: `Failed to export session! err: ${err}`};
         }
+        return {status: StatusCodes.OK, error: ""};
+    }
+
+    public async startServerUpdate(newVersion: Version): Promise<REST_Response<void>> {
+        // TODO
         return {status: StatusCodes.OK, error: ""};
     }
   
