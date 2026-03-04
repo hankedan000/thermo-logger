@@ -21,6 +21,7 @@ fi
 
 mkdir -p $DOWNLOADS_DIR # make the dir if doesn't exist yet
 cd $DOWNLOADS_DIR
+rm -f update.tar.gz # cleanup any existing downloads
 
 url="https://github.com/$REPO/releases/download/v$major.$minor.$patch/$APP_NAME-v$major.$minor.$patch.tar.gz"
 logInfo "Downloading update '$url' ..."

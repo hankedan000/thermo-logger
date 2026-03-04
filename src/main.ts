@@ -182,6 +182,16 @@ async function main() {
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 
+  app.post("/api/accept_server_update", async (req, res) => {
+    const restResp = await thermoServer.acceptServerUpdate();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/cancel_server_update", async (req, res) => {
+    const restResp = await thermoServer.cancelServerUpdate();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
   // Handle web socket connections
   wss.on('connection', ws => {
     thermoServer.addNewClient(ws);

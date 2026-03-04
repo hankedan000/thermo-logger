@@ -46,7 +46,6 @@ function App() {
   const [serverStatus, setServerStatus] = useState<ServerStatus>(new ServerStatus());
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
-  const [connectedToServer, setConnectedToServer] = useState<boolean>(false);
   const [sessions, setSessions] = useState<RecordSession[]>([]);
   const [latestRelInfo, setLatestRelInfo] = useState<GithubUtils.ReleaseInfo | undefined>();
 
@@ -129,8 +128,6 @@ function App() {
 
     // WebSocket handlers
     ws.onconnect = () => {
-      setConnectedToServer(true);
-
       ws.addEventListener('message', (event) => {
         const msg = JSON.parse(event.data);
 
@@ -141,7 +138,6 @@ function App() {
 
       ws.addEventListener('close', () => {
         processLatestSensorInfo([]);
-        setConnectedToServer(false);
         setServerStatus(new ServerStatus());
       });
 
@@ -274,14 +270,10 @@ function App() {
       <h3>Status</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
         <StatusIndicator
-          labelText=""
-          statusText={connectedToServer ? 'CONNECTED' : 'DISCONNECTED'}
-          color={connectedToServer ? 'green' : 'red'}/>
-        <div>Version: <VersionInfo currentVersion={currVersion} latestVersionInfo={latestRelInfo} startServerUpdate={onStartServerUpdate}/></div>
-        <StatusIndicator
           labelText="Server State: "
           statusText={serverStatus.serverState}
           color={serverStateToColor(serverStatus.serverState)}/>
+        <div>Version: <VersionInfo currentVersion={currVersion} latestVersionInfo={latestRelInfo} startServerUpdate={onStartServerUpdate}/></div>
         <div>RAM Usage: <MemoryUsage totalMem={serverStatus.totalRAM} freeMem={serverStatus.freeRAM}/></div>
         <div>Disk Usage: <MemoryUsage totalMem={serverStatus.totalDisk} freeMem={serverStatus.freeDisk}/></div>
 

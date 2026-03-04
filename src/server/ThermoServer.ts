@@ -8,6 +8,7 @@ import path from "path";
 import * as Prisma from "../db/prisma";
 import { existsSync } from "fs";
 import { Version } from "../utils/version";
+import { UpdateListener, UpdateService } from "./UpdateService";
 
 const UPDATE_TIMEOUT_SEC = 120; // 2mins
 const MAX_CLIENT_CONNECTIONS = 10;
@@ -73,7 +74,7 @@ export class REST_Response<RESULT_T> {
     result?: RESULT_T;
 }
 
-export class ThermoServer implements SamplerListener {
+export class ThermoServer implements SamplerListener, UpdateListener {
     private state: ServerState = ServerState.UNINITIALIZED
     private prismaUrl: string;
     private prisma: PrismaClient | undefined;
@@ -82,6 +83,7 @@ export class ThermoServer implements SamplerListener {
     private clients: ThermoClient[] = [];
     // timeout that puts server back to OPERATING if update is not accepted in time
     private updateTimeout: NodeJS.Timeout | undefined;
+    private updateService = new UpdateService(this);
 
     constructor(prismaUrl: string) {
         this.prismaUrl = prismaUrl;
@@ -115,6 +117,11 @@ export class ThermoServer implements SamplerListener {
                 if (this.updateTimeout) {
                     clearTimeout(this.updateTimeout);
                     this.updateTimeout = undefined;
+                }
+                // cancel any pending updates
+                if (this.updateService.isRunning()) {
+                    console.log("exiting 'UPDATING' state, and there's an active update running. canceling it now ...");
+                    this.updateService.cancel();
                 }
                 break;
         }
@@ -384,7 +391,41 @@ export class ThermoServer implements SamplerListener {
     }
 
     public async startServerUpdate(newVersion: Version): Promise<REST_Response<void>> {
-        // TODO
+        if (this.updateService.isRunning()) {
+            return {status: StatusCodes.CONFLICT, error: "An update is already running"};
+        }
+        
+        // put the server into the 'UPDATING' state first.
+        // this stops any recording, and disconnects us from the database.
+        const previousState = this.state;
+        if ( ! await this.setState(ServerState.UPDATING)) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to transition server to UPDATING state"};
+        }
+
+        // kick off the update service
+        if ( ! this.updateService.startUpdate(newVersion)) {
+            await this.setState(previousState);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to start update"};
+        }
+
+        return {status: StatusCodes.OK, error: ""};
+    }
+
+    public async acceptServerUpdate(): Promise<REST_Response<void>> {
+        if ( ! this.updateService.isRunning()) {
+            return {status: StatusCodes.CONFLICT, error: "An update isn't running"};
+        } else if ( ! this.updateService.acceptUpdate()) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to accept the update"};
+        }
+        return {status: StatusCodes.OK, error: ""};
+    }
+
+    public async cancelServerUpdate(): Promise<REST_Response<void>> {
+        if ( ! this.updateService.isRunning()) {
+            return {status: StatusCodes.CONFLICT, error: "An update isn't running"};
+        } else if ( ! await this.setState(ServerState.OPERATING)) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to transition back OPERATING"};
+        }
         return {status: StatusCodes.OK, error: ""};
     }
   
@@ -429,9 +470,17 @@ export class ThermoServer implements SamplerListener {
         }
     }
 
+    public onUpdateConsoleOutput(newOutput: string, fullOutput: string): void {
+        // TODO forward to clients to show progress
+    }
+
+    public onUpdateFailure(exitCode: number): void {
+        this.setState(ServerState.OPERATING);
+    }
+
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
         if ( ! this.samplerService) {
-            console.warn(`can't load senors while server is '${this.state}'`);
+            console.warn(`can't load sensors while server is '${this.state}'`);
             return;
         } else if (hardwareId in this.sensorStatusesByHwId) {
             console.warn(`sensor '${hardwareId}' already loaded`);
