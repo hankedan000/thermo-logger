@@ -8,9 +8,9 @@ import path from "path";
 import * as Prisma from "../db/prisma";
 import { existsSync } from "fs";
 import { Version } from "../utils/version";
-import { UpdateListener, UpdateService } from "./UpdateService";
+import { UpdateEvent, UpdateListener, UpdateProgressEvent, UpdateService } from "./UpdateService";
 
-const UPDATE_TIMEOUT_SEC = 120; // 2mins
+const UPDATE_TIMEOUT_SEC = 10 * 60; // 10 mins
 const MAX_CLIENT_CONNECTIONS = 10;
 const MIN_SAMPLING_RATE_MS = 1000; // 1s
 const TMP_DIR = '/tmp/thermo-logger'
@@ -37,7 +37,8 @@ class ThermoClient {
 }
 
 enum MsgType {
-    SensorUpdate = 'SensorUpdate'
+    SensorUpdate = 'SensorUpdate',
+    UpdateProgress = 'UpdateProgress'
 }
 
 interface ServerMsg {
@@ -66,6 +67,11 @@ interface UI_RecordSessionInfo {
 class SensorUpdateMsg implements ServerMsg {
     readonly  msgType: MsgType = MsgType.SensorUpdate;
     sensors: UI_SensorInfo[] = [];
+}
+
+class UpdateProgressMsg implements ServerMsg {
+    readonly  msgType: MsgType = MsgType.UpdateProgress;
+    progressEvent: UpdateProgressEvent | null = null;
 }
 
 export class REST_Response<RESULT_T> {
@@ -416,6 +422,14 @@ export class ThermoServer implements SamplerListener, UpdateListener {
             return {status: StatusCodes.CONFLICT, error: "An update isn't running"};
         } else if ( ! this.updateService.acceptUpdate()) {
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to accept the update"};
+        } else {
+            // update was accepted successfully. the install script is now copying the
+            // staged update into the install root, so we should cancel the update timeout
+            // to prevent it from terminating the install script partway through.
+            if (this.updateTimeout) {
+                clearTimeout(this.updateTimeout);
+                this.updateTimeout = undefined;
+            }
         }
         return {status: StatusCodes.OK, error: ""};
     }
@@ -470,12 +484,20 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
-    public onUpdateConsoleOutput(newOutput: string, fullOutput: string): void {
-        // TODO forward to clients to show progress
-    }
-
-    public onUpdateFailure(exitCode: number): void {
-        this.setState(ServerState.OPERATING);
+    public onUpdateProgress(event: UpdateProgressEvent): void {
+        if (event.eventType == UpdateEvent.CriticalFailure) {
+            // if we get a critical failure event, then we should transition back
+            // to OPERATING state to allow the user to retry the update if they want.
+            this.setState(ServerState.OPERATING);
+        } else if (event.eventType == UpdateEvent.UpdateSuccess) {
+            // if we get an update success event, then we can transition back to
+            // OPERATING state even though systemd should be restarting our server
+            // immenantly. this is mostly just to cancel the update timeout.
+            this.setState(ServerState.OPERATING);
+        }
+        const msg = new UpdateProgressMsg();
+        msg.progressEvent = event;
+        this.sendMsgToClients(msg);
     }
 
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {

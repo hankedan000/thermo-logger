@@ -7,14 +7,25 @@ const SCRIPTS_DIR = path.join(__dirname, '../../scripts');
 const DOWNLOAD_SCRIPT_PATH = path.join(SCRIPTS_DIR, 'downloadUpdateTar.bash');
 const INSTALL_SCRIPT_PATH = path.join(SCRIPTS_DIR, 'installUpdateTar.bash');
 
+export enum UpdateEvent {
+    None = 'None',
+    NewConsoleOutput = 'NewConsoleOutput',
+    DryRunReady = 'DryRunReady',
+    CriticalFailure = 'CriticalFailure',
+    UpdateSuccess = 'UpdateSuccess',
+}
+
+export class UpdateProgressEvent {
+    eventType: UpdateEvent = UpdateEvent.None;
+    newOutput: string = '';
+}
+
 export interface UpdateListener {
-    onUpdateConsoleOutput(newOutput: string, fullOutput: string): void;
-    onUpdateFailure(exitCode: number): void;
+    onUpdateProgress(event: UpdateProgressEvent): void;
 }
 
 export class UpdateService {
     private listener: UpdateListener | undefined = undefined;
-    private fullOutput: string = "";
     private downloadChild: ChildProcessWithoutNullStreams | undefined;
     private installChild: ChildProcessWithoutNullStreams | undefined;
     
@@ -35,7 +46,6 @@ export class UpdateService {
         }
     }
 
-    // TODO add callbacks for onConsoleOutput, and onFailure
     public startUpdate(newVersion: Version): boolean {
         if (this.isRunning()) {
             console.warn(`an update is already running. ignoring request.`);
@@ -44,9 +54,8 @@ export class UpdateService {
 
         // start the download script in a subprocess
         console.log(`starting download of update ${newVersion.toTag()} ...`);
-        this.fullOutput = "";
         this.downloadChild = spawn(
-            'bash', [DOWNLOAD_SCRIPT_PATH, '1.1.0'],
+            'bash', [DOWNLOAD_SCRIPT_PATH, newVersion.toString()],
             { stdio: ['pipe', 'pipe', 'pipe'] }
         );
 
@@ -64,7 +73,10 @@ export class UpdateService {
                 console.log('download was successful! starting install ...');
                 this.startInstall('/tmp/thermo-logger/downloads/update.tar.gz');
             } else if (this.listener) {
-                this.listener.onUpdateFailure(code);
+                const event = new UpdateProgressEvent();
+                event.eventType = UpdateEvent.CriticalFailure;
+                this.listener.onUpdateProgress(event);
+                console.error('download failed!');
             }
             this.downloadChild = undefined;
         });
@@ -78,8 +90,8 @@ export class UpdateService {
             return false;
         }
 
-
-        // TODO
+        this.installChild.stdin.write('y\n');
+        this.installChild.stdin.end();
         return true;
     }
 
@@ -101,8 +113,10 @@ export class UpdateService {
         this.installChild.on("exit", (code: number, signal) => {
             console.log(`install - exited with code ${code}, signal ${signal}`);
             if (code != 0 && this.listener) {
-                console.log('install failed!');
-                this.listener.onUpdateFailure(code);
+                console.error('install failed!');
+                const event = new UpdateProgressEvent();
+                event.eventType = UpdateEvent.CriticalFailure;
+                this.listener.onUpdateProgress(event);
             }
             this.installChild = undefined;
         });
@@ -112,9 +126,33 @@ export class UpdateService {
 
     private onNewConsoleOutput(prefix: string, newOutput: string) {
         console.log(`${prefix} - ${newOutput}`);
-        this.fullOutput += newOutput;
         if (this.listener) {
-            this.listener.onUpdateConsoleOutput(newOutput, this.fullOutput);
+            const event = new UpdateProgressEvent();
+            event.eventType = UpdateEvent.NewConsoleOutput;
+            event.newOutput = newOutput.toString();
+            this.listener.onUpdateProgress(event);
+        }
+
+        if (newOutput.toString().includes('Dry run started!')) {
+            // Handle dry run started event
+            if (this.listener) {
+                const event = new UpdateProgressEvent();
+                event.eventType = UpdateEvent.DryRunReady;
+                this.listener.onUpdateProgress(event);
+            }
+        } else if (newOutput.toString().includes('Dry run failed to start!')) {
+            // Handle dry run failure event
+            if (this.listener) {
+                const event = new UpdateProgressEvent();
+                event.eventType = UpdateEvent.CriticalFailure;
+                this.listener.onUpdateProgress(event);
+            }
+        } else if (newOutput.toString().includes('Upgrade complete!')) {
+            if (this.listener) {
+                const event = new UpdateProgressEvent();
+                event.eventType = UpdateEvent.UpdateSuccess;
+                this.listener.onUpdateProgress(event);
+            }
         }
     }
 }

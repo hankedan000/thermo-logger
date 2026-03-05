@@ -14,7 +14,7 @@ source $SCRIPT_DIR/common.bash
 # this makes sure the app is no longer modifying the database, allowing
 # us to safely make a copy and upgrade it.
 logInfo "Requesting running instance to disconnect from database ..."
-sudo pkill -HUP -f thermo-logger
+sudo pkill -HUP thermo-logger
 sleep 5 # give it some extra time to disconnect
 
 thisUpdateRoot=$(realpath $SCRIPT_DIR/..)
@@ -53,18 +53,36 @@ fi
 
 if [ $doDryRun -eq 1 ]; then
     # run app on a different port to test that the update went okay
-    node dist/main.js --port=3000 &
+    dryRunPort=4000
+    node dist/main.js --port=$dryRunPort &
     dryRunPID=$!
 
-    if kill -0 "$dryRunPID" 2>/dev/null; then
-        logInfo "App dry run started! Go to http://localhost:3000 to test it out."
+    # poll localhost:$dryRunPort for up to 5s to verify the dry-run started
+    started=0
+    attempts=10
+    while [ $attempts -gt 0 ]; do
+        # if process died, stop polling
+        if ! kill -0 "$dryRunPID" 2>/dev/null; then
+            break
+        fi
+        # try an HTTP request; succeed fast if server is up
+        if curl -sSf --max-time 1 http://localhost:$dryRunPort/ >/dev/null 2>&1; then
+            started=1
+            break
+        fi
+        sleep 0.5
+        attempts=$((attempts-1))
+    done
+
+    if [ $started -eq 1 ] && kill -0 "$dryRunPID" 2>/dev/null; then
+        logInfo "Dry run started! Go to http://localhost:$dryRunPort to test it out."
     else
-        logError "App dry run seems to have failed to start"
+        logError "Dry run failed to start!"
         exit 1
     fi
 
     # wait for user to accept/reject the dry runned app
-    if read -t 60 -p "You have 60s to accept the update. (y/n): " answer; then
+    if read -t 120 -p "You have 2mins to accept the update. (y/n): " answer; then
         if [[ "$answer" != "y" ]]; then
             logInfo "Update rejected!"
             stopProcess $dryRunPID 5 # gracefully stop, but force kill after 5s
@@ -80,8 +98,6 @@ if [ $doDryRun -eq 1 ]; then
     stopProcess $dryRunPID 5 # gracefully stop, but force kill after 5s
 fi
 
-sudo systemctl stop $APP_NAME
-
 # install the update
 logInfo "Installing app ..."
 sudo mv $SCRIPT_DIR/*.service /etc/systemd/system/
@@ -94,7 +110,8 @@ logInfo "Installing systemd units ..."
 sudo systemctl daemon-reload
 sudo systemctl enable $APP_NAME
 
-logInfo "Starting systemd units ..."
-sudo systemctl start $APP_NAME
+logInfo "Restarting systemd units ... (server will restart immenantly)"
+sleep 2 # give server some time to send that log to the user before we restart it
+sudo systemctl restart $APP_NAME
 
 logInfo "Upgrade complete!"

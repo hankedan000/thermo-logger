@@ -34,14 +34,37 @@ async function main() {
           default: '',
           description: 'Path to optional config file'
       })
-      .alias('h', 'help')
+      .option('spoof-version', {
+          type: 'string',
+          default: '',
+          description: 'Spoof the version of the app (used for testing app update logic). ex: --spoof-version=1.2.3'
+      })
+      .version(false) // disable built-in yargs version logic
+      .option('version', {
+          alias: 'v',
+          type: 'boolean',
+          default: false,
+          description: 'Display application version'
+      })
+      .alias('help', 'h')
       .parseSync();
+  
+  // handle version spoofing logic
+  let currVersion = Version.parse(version);
+  if (argv.spoofVersion.length > 0) {
+    currVersion = Version.parse(argv.spoofVersion);
+  }
 
+  // handle version display option
+  if (argv.version) {
+    console.log(currVersion.toString());
+    process.exit(0);
+  }
+  
   const app = express();
   const server = createServer(app);
   const wss = new WebSocketServer({ server });
   const thermoServer = new ThermoServer(`file:${argv.dbPath}`);
-  const currVersion = Version.parse(version);
 
   process.title = 'thermo-logger';
   process.on('SIGINT', async () => {
@@ -93,7 +116,7 @@ async function main() {
   app.get("/api/server_status", async (req, res) => {
     const disk = await checkDiskSpace('/');
     res.json({
-      'version': version,
+      'version': currVersion.toString(),
       'serverState': thermoServer.getServerState() as string,
       'activeSessionId': thermoServer.getActiveSessionId(),
       'totalRAM': os.totalmem(),

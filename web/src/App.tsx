@@ -11,6 +11,7 @@ import MemoryUsage from "./components/MemoryUsage";
 import * as GithubUtils from "./utils/github";
 import { Version } from "./utils/version";
 import VersionInfo from "./components/VersionInfo";
+import UpdateDialog from "./components/UpdateDialog";
 
 class ServerStatus {
   version: string = 'UNKNOWN';
@@ -20,6 +21,11 @@ class ServerStatus {
   freeRAM: number = 0;
   totalDisk: number = 0;
   freeDisk: number = 0;
+}
+
+interface UpdateProgressEvent {
+    eventType: 'None' | 'NewConsoleOutput' | 'DryRunReady' | 'CriticalFailure' | 'UpdateSuccess' | null;
+    newOutput: string;
 }
 
 function serverStateToColor(state: string) {
@@ -48,6 +54,11 @@ function App() {
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [sessions, setSessions] = useState<RecordSession[]>([]);
   const [latestRelInfo, setLatestRelInfo] = useState<GithubUtils.ReleaseInfo | undefined>();
+  const [showUpdateDialog, setShowUpdateDialog] = useState<boolean>(false);
+  const [updateLogLines, setUpdateLogLines] = useState<string[]>([]);
+  const [showAbortUpdateButton, setShowAbortUpdateButton] = useState<boolean>(true);
+  const [showAcceptUpdateButton, setShowAcceptUpdateButton] = useState<boolean>(false);
+  const [showCloseUpdateButton, setShowCloseUpdateButton] = useState<boolean>(false);
 
   const fetchLatestServerStatus = () => {
     fetch(`http://${baseUrl}/api/server_status`)
@@ -133,6 +144,10 @@ function App() {
 
         if (msg.msgType === "SensorUpdate") {
           processLatestSensorInfo(msg.sensors);
+        } else if (msg.msgType === "UpdateProgress") {
+          onConsoleProgressUpdate(msg.progressEvent as UpdateProgressEvent);
+        } else {
+          console.warn(`received unknown msg from server via websocket. msg: ${event.data}`);
         }
       });
 
@@ -153,7 +168,7 @@ function App() {
         const relInfo = await GithubUtils.getLatestRelease('hankedan000', 'thermo-logger');
         setLatestRelInfo(relInfo);
       } catch (err: any) {
-        console.log('Failed to fetch latest github release info. err: ', err);
+        console.error('Failed to fetch latest github release info. err: ', err);
         setLatestRelInfo(undefined);
       }
     }, 100);
@@ -242,7 +257,7 @@ function App() {
   };
 
   const onStartServerUpdate = (newVersion: Version) => {
-    fetch(`http://${baseUrl}/api/export_session`, {
+    fetch(`http://${baseUrl}/api/start_server_update`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -252,9 +267,65 @@ function App() {
       }),
     })
     .then(() => {
+      setShowUpdateDialog(true);
+      setUpdateLogLines([]);
       fetchLatestServerStatus();
     });
   }
+
+  const onConsoleProgressUpdate = (msg: UpdateProgressEvent) => {
+    if (msg.newOutput.length > 0) {
+      setUpdateLogLines(prevLines => [...prevLines, msg.newOutput]);
+    }
+
+    if (msg.eventType === 'None') {
+      // nothing to do
+    } else if (msg.eventType === 'NewConsoleOutput') {
+      // nothing to do here since we already add the new output to the log lines above
+    } else if (msg.eventType === 'DryRunReady') {
+      // Handle dry run ready event
+      setShowAcceptUpdateButton(true);
+    } else if (msg.eventType === 'CriticalFailure') {
+      // Handle critical failure event
+      setShowCloseUpdateButton(true);
+    } else if (msg.eventType === 'UpdateSuccess') {
+      // nothing to do here since server will restart immenantly, but we will display
+      // the close button to allow user to close the dialog if they want until the server goes down.
+      setShowCloseUpdateButton(true);
+    } else {
+      console.warn(`received unknown update progress eventType: ${msg.eventType}`);
+    }
+  };
+
+  const abortUpdate = () => {
+    fetch(`http://${baseUrl}/api/cancel_server_update`, {
+      method: "POST"
+    })
+    .then(() => {
+      closeUpdateDialog();
+      fetchLatestServerStatus();
+    });
+  };
+
+  const acceptUpdate = () => {
+    setShowAbortUpdateButton(false);
+    setShowAcceptUpdateButton(false);
+    setShowCloseUpdateButton(false);
+    fetch(`http://${baseUrl}/api/accept_server_update`, {
+      method: "POST"
+    })
+    .then(() => {
+      // not much to do here since server will restart immenantly
+    });
+  };
+
+  const closeUpdateDialog = () => {
+    setShowUpdateDialog(false);
+    setUpdateLogLines([]);
+    setShowAbortUpdateButton(true);
+    setShowAcceptUpdateButton(false);
+    setShowCloseUpdateButton(false);
+  };
 
   let currVersion: Version | undefined = undefined;
   if (serverStatus.version != 'UNKNOWN') {
@@ -299,6 +370,19 @@ function App() {
           onExport={onSessionExport}
           onStop={onSessionStop}/>
       </div>
+
+      {/* Dialog box that gets displayed when updating the backend server */}
+      <UpdateDialog
+        open={showUpdateDialog}
+        onClose={() => abortUpdate()}
+        title="Update Console"
+        lines={updateLogLines}
+        buttons={[
+          { show: showAbortUpdateButton, label: "Abort", onClick: () => abortUpdate(), variant: "danger" },
+          { show: showAcceptUpdateButton, label: "Accept", onClick: () => acceptUpdate(), variant: "primary" },
+          { show: showCloseUpdateButton, label: "Close", onClick: () => closeUpdateDialog(), variant: "ghost" },
+        ]}
+      />
     </div>
   );
 }

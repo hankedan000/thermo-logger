@@ -19,10 +19,10 @@ if [ $? -eq 1 ]; then
     exit 1
 fi
 
+updateFilePath=$DOWNLOADS_DIR/update.tar.gz
 mkdir -p $DOWNLOADS_DIR # make the dir if doesn't exist yet
-cd $DOWNLOADS_DIR
-rm -f update.tar.gz # cleanup any existing downloads
+rm -f $updateFilePath # cleanup any existing downloads
 
 url="https://github.com/$REPO/releases/download/v$major.$minor.$patch/$APP_NAME-v$major.$minor.$patch.tar.gz"
 logInfo "Downloading update '$url' ..."
-curl -L -o update.tar.gz $url
+curl -L -o $updateFilePath $url
