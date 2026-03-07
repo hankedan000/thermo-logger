@@ -7,6 +7,11 @@ datasource db {
   provider = "sqlite"
 }
 
+model Settings {
+  id             Int @id @default(1)
+  useFahrenheit  Boolean @default(true)
+}
+
 model Sensor {
   id             Int             @id @default(autoincrement())
   hardwareId     String          @unique // 1-wire unique ID

@@ -162,7 +162,10 @@ async function main() {
   });
 
   app.post("/api/export_session", async (req, res) => {
-    const restResp = await thermoServer.exportSession(req.body.sessionId);
+    const restResp = await thermoServer.exportSession(
+      req.body.sessionId,
+      req.body.useFahrenheit || false
+    );
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 
@@ -212,6 +215,17 @@ async function main() {
 
   app.post("/api/cancel_server_update", async (req, res) => {
     const restResp = await thermoServer.cancelServerUpdate();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.get("/api/settings", async (req, res) => {
+    const restResp = await thermoServer.getSettingsREST();
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/settings", async (req, res) => {
+    const { settingName, settingValue } = req.body;
+    const restResp = await thermoServer.updateSettingsREST(settingName, settingValue);
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 

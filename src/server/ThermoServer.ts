@@ -1,5 +1,5 @@
 import { StatusCodes } from "http-status-codes";
-import { PrismaClient, Sensor } from "../generated/prisma/client";
+import { PrismaClient, Sensor, Settings } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 import { RecordSession, SessionSensor } from "../generated/prisma/browser";
@@ -206,6 +206,37 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
+    public async getSettingsREST(): Promise<REST_Response<Settings>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't get settings while server is '${this.state}'`};
+        }
+
+        const settings = await this.getSettings();
+        if ( ! settings) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to get settings"};
+        }
+        return {status: StatusCodes.OK, error: "", result: settings};
+    }
+
+    public async updateSettingsREST(settingName: string, settingValue: any): Promise<REST_Response<void>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't update settings while server is '${this.state}'`};
+        }
+
+        try {
+            await this.prisma.settings.update({
+                where: {id: 1},
+                data: {
+                    [settingName]: settingValue
+                }
+            });
+        } catch (err: any) {
+            console.error(`updateSettingsREST - failed to update setting '${settingName}' to value '${settingValue}'! err: ${err}`);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to update settings"};
+        }
+        return {status: StatusCodes.OK, error: ""};
+    }
+
     public async renameSensor(sensorId: number, newName: string): Promise<REST_Response<string>> {
         if ( ! this.prisma) {
             return {status: StatusCodes.CONFLICT, error: `Can't rename sensors while server is '${this.state}'`};
@@ -218,12 +249,13 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         } else if (isNaN(sensorId)) {
             return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be NaN"};
         }
-        
+
         try {
             // attempt to rename the sensor in the database
             const sensor = await this.prisma.sensor.update({
                 where: {id: sensorId},
                 data: {currentName: newName}
+
             });
 
             // rename was successful
@@ -236,6 +268,7 @@ export class ThermoServer implements SamplerListener, UpdateListener {
 
             return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to rename sensor"};
         }
+
     }
 
     public async getUI_SensorInfos(): Promise<REST_Response<UI_SensorInfo[]>> {
@@ -365,7 +398,7 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
-    public async exportSession(sessionId: number): Promise<REST_Response<void>> {
+    public async exportSession(sessionId: number, useFahrenheit: boolean): Promise<REST_Response<void>> {
         if ( ! this.prisma) {
             return {status: StatusCodes.CONFLICT, error: `Can't export RecordSessions while server is '${this.state}'`};
         } else if (isNaN(sessionId)) {
@@ -377,6 +410,7 @@ export class ThermoServer implements SamplerListener, UpdateListener {
             const exportPath = await exportSessionToCsv(
                 this.prisma,
                 sessionId,
+                useFahrenheit,
                 TMP_EXPORTS_DIR);
             
             // update RecordSession to include latests export info
@@ -498,6 +532,25 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         const msg = new UpdateProgressMsg();
         msg.progressEvent = event;
         this.sendMsgToClients(msg);
+    }
+
+    public async getSettings(): Promise<Settings | undefined> {
+        if ( ! this.prisma) {
+            throw new Error(`Can't get settings while server is '${this.state}'`);
+        }
+
+        let settings = await this.prisma.settings.findUnique({
+            where: {id: 1}
+        });
+        if ( ! settings) {
+            settings = await this.prisma.settings.create({
+                data: {
+                    id: 1,
+                    useFahrenheit: true
+                }
+            });
+        }
+        return settings;
     }
 
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
