@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { use, useEffect, useState } from "react";
 import SensorStatusList from "./components/SensorStatusList";
 import type { SensorUpdateEntry } from "./components/SensorStatusList";
 import { ReconnectingWebSocket } from "./utils/ReconnectingWebSocket";
@@ -12,6 +12,7 @@ import * as GithubUtils from "./utils/github";
 import { Version } from "./utils/version";
 import VersionInfo from "./components/VersionInfo";
 import UpdateDialog from "./components/UpdateDialog";
+import SettingsPanel from "./components/SettingsPanel";
 
 class ServerStatus {
   version: string = 'UNKNOWN';
@@ -26,6 +27,10 @@ class ServerStatus {
 interface UpdateProgressEvent {
     eventType: 'None' | 'NewConsoleOutput' | 'DryRunReady' | 'CriticalFailure' | 'UpdateSuccess' | null;
     newOutput: string;
+}
+
+class Settings {
+  useFahrenheit: boolean = true;
 }
 
 function serverStateToColor(state: string) {
@@ -50,6 +55,8 @@ function App() {
     // assume production case where websocket matches http server port
   }
   const [serverStatus, setServerStatus] = useState<ServerStatus>(new ServerStatus());
+  const [settings, setSettings] = useState<Settings>(new Settings());
+  const [showSettingsPanel, setShowSettingsPanel] = useState<boolean>(false);
   const [sensors, setSensors] = useState<SensorUpdateEntry[]>([]);
   const [sensorOptions, setSensorOptions] = useState<SensorSelectionEntry[]>([]);
   const [sessions, setSessions] = useState<RecordSession[]>([]);
@@ -68,8 +75,25 @@ function App() {
       .then(newStatus => {
         if (newStatus) {
           setServerStatus(newStatus);
+          setShowSettingsPanel(true);
         } else {
           setServerStatus(new ServerStatus());
+          setShowSettingsPanel(false);
+        }
+      });
+  };
+
+  const fetchLatestSettings = () => {
+    fetch(`http://${baseUrl}/api/settings`)
+      .then(resp => {
+        return resp.json();
+      })
+      .then(restResp => {
+        const newSettings = restResp.result as Settings;
+        if (newSettings) {
+          setSettings(newSettings);
+        } else {
+          setSettings(new Settings());
         }
       });
   };
@@ -157,6 +181,7 @@ function App() {
       });
 
       fetchLatestServerStatus();
+      fetchLatestSettings();
       fetchLatestSensorInfo();
       fetchLatestSessions();
     };
@@ -238,7 +263,8 @@ function App() {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        sessionId: sessionId
+        sessionId: sessionId,
+        useFahrenheit: settings.useFahrenheit
       }),
     })
     .then(() => {
@@ -319,6 +345,22 @@ function App() {
     });
   };
 
+  const updateSettings = (settingName: string, settingValue: any) => {
+    fetch(`http://${baseUrl}/api/settings`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        settingName: settingName,
+        settingValue: settingValue
+      }),
+    })
+    .then(() => {
+      fetchLatestSettings();
+    });
+  };
+
   const closeUpdateDialog = () => {
     setShowUpdateDialog(false);
     setUpdateLogLines([]);
@@ -338,6 +380,25 @@ function App() {
 
   return (
     <div style={{ padding: "2rem" }}>
+      <SettingsPanel
+        showPanel={showSettingsPanel}
+        title="Settings"
+        sections={[
+          {
+            title: "General",
+            rows: [
+              {
+                label: "Use Fahrenheit",
+                description: "Display temperatures in Fahrenheit",
+                control: {
+                  type: "toggle",
+                  checked: settings.useFahrenheit,
+                  onChange: (checked) => {updateSettings("useFahrenheit", checked);}
+                }
+              }
+            ]
+          }
+        ]}/>
       <h3>Status</h3>
       <div style={{ border: "1px solid #ccc", padding: "1rem", borderRadius: "8px" }}>
         <StatusIndicator
@@ -349,7 +410,9 @@ function App() {
         <div>Disk Usage: <MemoryUsage totalMem={serverStatus.totalDisk} freeMem={serverStatus.freeDisk}/></div>
 
         Sensors:
-        <SensorStatusList sensors={sensors}/>
+        <SensorStatusList
+          sensors={sensors}
+          useFahrenheit={settings.useFahrenheit}/>
       </div>
 
       <div hidden={serverStatus.activeSessionId != null}>

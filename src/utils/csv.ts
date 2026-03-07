@@ -49,6 +49,7 @@ function makeExportFilename(session: RecordSession, extension: string): string {
 export async function exportSessionToCsv(
         prisma: PrismaClient,
         sessionId: number,
+        useFahrenheit: boolean,
         outputDir: string): Promise<string> {
 
     const session = await prisma.recordSession.findUnique({where: {id: sessionId}});
@@ -67,7 +68,7 @@ export async function exportSessionToCsv(
     const sessionSensors = await prisma.sessionSensor.findMany({where: {sessionId: sessionId}});
     outStream.write("timestamp");
     for (const sensor of sessionSensors) {
-        outStream.write(`,${escapeCsv(sensor.name)} temp (C)`);
+        outStream.write(`,${escapeCsv(sensor.name)} temp (${useFahrenheit ? "F" : "C"})`);
     }
     outStream.write("\n");
 
@@ -104,7 +105,7 @@ export async function exportSessionToCsv(
             for (const sensor of sessionSensors) {
                 const sample = locateSampleBySensorId(group.samples, sensor.sensorId);
                 if (sample) {
-                    row += `,${sample.tempC}`;
+                    row += `,${useFahrenheit ? (sample.tempC * 9/5 + 32) : sample.tempC}`;
                 } else {
                     row += `,NaN`;
                 }

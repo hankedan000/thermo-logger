@@ -1,5 +1,5 @@
 import { StatusCodes } from "http-status-codes";
-import { PrismaClient, Sensor } from "../generated/prisma/client";
+import { PrismaClient, Sensor, Settings } from "../generated/prisma/client";
 import { SamplerService, SamplerListener } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 import { RecordSession, SessionSensor } from "../generated/prisma/browser";
@@ -206,36 +206,35 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
-    public async renameSensor(sensorId: number, newName: string): Promise<REST_Response<string>> {
+    public async getSettingsREST(): Promise<REST_Response<Settings>> {
         if ( ! this.prisma) {
-            return {status: StatusCodes.CONFLICT, error: `Can't rename sensors while server is '${this.state}'`};
+            return {status: StatusCodes.CONFLICT, error: `Can't get settings while server is '${this.state}'`};
         }
 
-        // valid inputs
-        newName = newName.trim();
-        if ( ! newName || newName.length === 0) {
-            return {status: StatusCodes.BAD_REQUEST, error: "newName cannot be empty"};
-        } else if (isNaN(sensorId)) {
-            return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be NaN"};
+        const settings = await this.getSettings();
+        if ( ! settings) {
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to get settings"};
         }
-        
+        return {status: StatusCodes.OK, error: "", result: settings};
+    }
+
+    public async updateSettingsREST(settingName: string, settingValue: any): Promise<REST_Response<void>> {
+        if ( ! this.prisma) {
+            return {status: StatusCodes.CONFLICT, error: `Can't update settings while server is '${this.state}'`};
+        }
+
         try {
-            // attempt to rename the sensor in the database
-            const sensor = await this.prisma.sensor.update({
-                where: {id: sensorId},
-                data: {currentName: newName}
+            await this.prisma.settings.update({
+                where: {id: 1},
+                data: {
+                    [settingName]: settingValue
+                }
             });
-
-            // rename was successful
-            return {status: StatusCodes.OK, error: 'Successfully renamed sensor', result: sensor.currentName};
         } catch (err: any) {
-            // Prisma throws if record not found
-            if (err.code === "P2025") {
-                return {status: StatusCodes.NOT_FOUND, error: `sensorId '${sensorId}' doesn't exist in database`};
-            }
-
-            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to rename sensor"};
+            console.error(`updateSettingsREST - failed to update setting '${settingName}' to value '${settingValue}'! err: ${err}`);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to update settings"};
         }
+        return {status: StatusCodes.OK, error: ""};
     }
 
     public async getUI_SensorInfos(): Promise<REST_Response<UI_SensorInfo[]>> {
@@ -365,7 +364,7 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
-    public async exportSession(sessionId: number): Promise<REST_Response<void>> {
+    public async exportSession(sessionId: number, useFahrenheit: boolean): Promise<REST_Response<void>> {
         if ( ! this.prisma) {
             return {status: StatusCodes.CONFLICT, error: `Can't export RecordSessions while server is '${this.state}'`};
         } else if (isNaN(sessionId)) {
@@ -377,6 +376,7 @@ export class ThermoServer implements SamplerListener, UpdateListener {
             const exportPath = await exportSessionToCsv(
                 this.prisma,
                 sessionId,
+                useFahrenheit,
                 TMP_EXPORTS_DIR);
             
             // update RecordSession to include latests export info
@@ -498,6 +498,25 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         const msg = new UpdateProgressMsg();
         msg.progressEvent = event;
         this.sendMsgToClients(msg);
+    }
+
+    public async getSettings(): Promise<Settings | undefined> {
+        if ( ! this.prisma) {
+            throw new Error(`Can't get settings while server is '${this.state}'`);
+        }
+
+        let settings = await this.prisma.settings.findUnique({
+            where: {id: 1}
+        });
+        if ( ! settings) {
+            settings = await this.prisma.settings.create({
+                data: {
+                    id: 1,
+                    useFahrenheit: true
+                }
+            });
+        }
+        return settings;
     }
 
     private async loadSensor(hardwareId: string, isSimulated: boolean): Promise<void> {
