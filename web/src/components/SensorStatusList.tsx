@@ -1,9 +1,9 @@
 import { convertTemp } from "../utils/units";
 
 export interface SensorUpdateEntry {
-  sensorId: number;   // id of the sensor in the database
-  hardwareId: string; // hardware id burned into the sensor (1-wire specific)
-  lastTempC: number;
+  sensorId: number;        // id of the sensor in the database
+  hardwareId: string;      // hardware id burned into the sensor (1-wire specific)
+  lastTempC: number | null;
   currentName: string;
   available: boolean;
 }
@@ -14,13 +14,21 @@ interface Props {
 }
 
 export default function SensorStatusList({sensors, useFahrenheit}: Props) {
+  const formatTemp = (tempC: number | null) => {
+    if (! tempC ||isNaN(tempC)) {
+      return "---";
+    } else {
+      return convertTemp(tempC, useFahrenheit).toFixed(2);
+    }
+  };
+
   const sensorRows = sensors.map((sensor) => (
     <tr key={sensor.sensorId}>
       <td>{sensor.hardwareId}</td>
 
       <td>{sensor.currentName}</td>
 
-      <td>{convertTemp(sensor.lastTempC, useFahrenheit).toFixed(2)}</td>
+      <td>{formatTemp(sensor.lastTempC)}</td>
 
       <td>{sensor.available ? "🟢" : "🔴"}</td>
     </tr>
