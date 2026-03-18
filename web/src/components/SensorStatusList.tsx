@@ -1,5 +1,9 @@
 import { convertTemp } from "../utils/units";
 
+// use a very large negative number to indicate an error if we fail to sample for some reason.
+// we want to avoid using NaN here because some databases don't support storing NaN values.
+export const BAD_TEMPERATURE_READING = -1000.0;
+
 export interface SensorUpdateEntry {
   sensorId: number;        // id of the sensor in the database
   hardwareId: string;      // hardware id burned into the sensor (1-wire specific)
@@ -15,7 +19,7 @@ interface Props {
 
 export default function SensorStatusList({sensors, useFahrenheit}: Props) {
   const formatTemp = (tempC: number | null) => {
-    if (! tempC ||isNaN(tempC)) {
+    if ( ! tempC || isNaN(tempC) || tempC === BAD_TEMPERATURE_READING) {
       return "---";
     } else {
       return convertTemp(tempC, useFahrenheit).toFixed(2);

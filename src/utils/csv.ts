@@ -3,6 +3,7 @@ import { once } from "events";
 import fs from "fs";
 import path from "path";
 import * as FS_Utils from "./fs";
+import { BAD_TEMPERATURE_READING } from "../sampling/sampler.service";
 
 function escapeCsv(value: string) {
   if (value.includes(",") || value.includes('"') || value.includes("\n")) {
@@ -66,7 +67,7 @@ export async function exportSessionToCsv(
     
     // Write header row
     const sessionSensors = await prisma.sessionSensor.findMany({where: {sessionId: sessionId}});
-    outStream.write("timestamp");
+    outStream.write("Datetime,Time (s)");
     for (const sensor of sessionSensors) {
         outStream.write(`,${escapeCsv(sensor.name)} temp (${useFahrenheit ? "F" : "C"})`);
     }
@@ -81,11 +82,21 @@ export async function exportSessionToCsv(
         return undefined;
     };
     
+    const toExcelISO = (dt: Date) => {
+        // Excel and Google sheets don't handle ISO8601 timestamps with the 'T' and 'Z' characters.
+        // 'T' is used to separate the date and time parts
+        // 'Z' is used to indicate UTC timezone
+        return dt.toISOString()
+            .replace("T", " ")
+            .replace("Z", "");
+    }
+
     // Export the CSV by batch reading SampleGroups from the database and
     // streaming the lines to disk. This should prevent loading large amounts
     // of data into RAM.
     const BATCH_SIZE = 100;
     let cursor: { id: number } | undefined = undefined;
+    let firstTimestamp: Date | undefined = undefined;
     while (true) {
         const groups: any[] = await prisma.sampleGroup.findMany({
             where: { sessionId },
@@ -100,14 +111,26 @@ export async function exportSessionToCsv(
         }
 
         for (const group of groups) {
-            let row = `${group.timestamp.toISOString()}`;
-            // append all sensor readings to the row
+            // record the timestamp of the first sample group so we can calculate time since start for each group
+            if ( ! firstTimestamp && group.timestamp) {
+                firstTimestamp = group.timestamp;
+            }
+
+            // calculate time since start in seconds for this sample group
+            let timeSinceStartSec = 0;
+            if (group.timestamp && firstTimestamp) {
+                timeSinceStartSec = (group.timestamp.getTime() - firstTimestamp.getTime()) / 1000;
+            }
+
+            // build a CSV row for this sample group, starting with the timestamp and time since start
+            let row = `${toExcelISO(group.timestamp)},${timeSinceStartSec.toFixed(3)}`;
             for (const sensor of sessionSensors) {
                 const sample = locateSampleBySensorId(group.samples, sensor.sensorId);
-                if (sample) {
-                    row += `,${useFahrenheit ? (sample.tempC * 9/5 + 32) : sample.tempC}`;
+                if ( ! sample || isNaN(sample.tempC) || sample.tempC === BAD_TEMPERATURE_READING) {
+                    row += `,`; // empty value for missing/invalid reading
                 } else {
-                    row += `,NaN`;
+                    const tempValue = useFahrenheit ? (sample.tempC * 9/5 + 32) : sample.tempC;
+                    row += `,${tempValue.toFixed(2)}`;
                 }
             }
             row += "\n";

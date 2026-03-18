@@ -4,6 +4,10 @@ import { sensors, temperatureSync } from "ds18b20";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
+// use a very large negative number to indicate an error if we fail to sample for some reason.
+// we want to avoid using NaN here because some databases don't support storing NaN values.
+export const BAD_TEMPERATURE_READING = -1000.0;
+
 export interface SamplerListener {
   onSensorSearch(availableHwIds: string[]): void;
   onSensorSampled(sensor: Sensor, tempC: number): void;
@@ -204,14 +208,17 @@ export class SamplerService {
   }
 
   private async sampleSensor(sensor: Sensor): Promise<number> {
-      var tempC = NaN;
+      var tempC = BAD_TEMPERATURE_READING;
       if (sensor.isSimulated) {
-        tempC = randomInt(20, 26);
+        if (Math.random() > 0.1) {
+          // 10% chance to get an invalid reading
+          tempC = randomInt(20, 26);
+        }
       } else {
         try {
           tempC = temperatureSync(sensor.hardwareId);
         } catch (e) {
-          // leave tempC as NaN in error case
+          // leave tempC as BAD_TEMPERATURE_READING in error case
         }
       }
       return tempC;

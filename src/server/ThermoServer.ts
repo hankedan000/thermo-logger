@@ -1,6 +1,6 @@
 import { StatusCodes } from "http-status-codes";
 import { PrismaClient, Sensor, Settings } from "../generated/prisma/client";
-import { SamplerService, SamplerListener } from "../sampling/sampler.service";
+import { SamplerService, SamplerListener, BAD_TEMPERATURE_READING } from "../sampling/sampler.service";
 import { WebSocket } from "ws";
 import { RecordSession, SessionSensor } from "../generated/prisma/browser";
 import { exportSessionToCsv } from "../utils/csv";
@@ -17,8 +17,8 @@ const TMP_DIR = '/tmp/thermo-logger'
 export const TMP_EXPORTS_DIR = path.join(TMP_DIR, 'exports');
 
 export class SensorStatus {
-    public available: boolean = false; // true if sensor is avaialbe on onewire bus
-    public lastTempC: number = NaN;    // last reading we got
+    public available: boolean = false;                 // true if sensor is avaialbe on onewire bus
+    public lastTempC: number = BAD_TEMPERATURE_READING;// last reading we got
     public isSimulated: boolean = false;
 }
 
@@ -255,7 +255,6 @@ export class ThermoServer implements SamplerListener, UpdateListener {
             const sensor = await this.prisma.sensor.update({
                 where: {id: sensorId},
                 data: {currentName: newName}
-
             });
 
             // rename was successful
@@ -498,10 +497,8 @@ export class ThermoServer implements SamplerListener, UpdateListener {
     public onSensorSampled(sensor: Sensor, tempC: number) {
         const status = this.sensorStatusesByHwId.get(sensor.hardwareId);
         if (status) {
-            if (isNaN(tempC)) {
-                status.available = false;
-            } else {
-                status.available = true;
+            status.available = tempC !== BAD_TEMPERATURE_READING;
+            if (status.available) {
                 status.lastTempC = tempC;
             }
         }
@@ -565,12 +562,9 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         const status = new SensorStatus();
         status.isSimulated = isSimulated;
         status.available = true;
-        if (isSimulated) {
-            status.lastTempC = 23.0;
-        } else {
-            // temperature will be read immenantly because discovery occurs
-            // right before temperature collection.
-        }
+        // temperature will be read immenantly because discovery occurs
+        // right before temperature collection.
+
         const newSensor = await this.getOrCreateDbSensor(hardwareId, isSimulated);
         if (newSensor) {
             this.sensorStatusesByHwId.set(hardwareId, status);
