@@ -62,7 +62,7 @@ export default function SessionList({baseUrl, sessions, activeSessionId, onDelet
           <th>Name</th>
           <th>Created</th>
           <th>Sensors</th>
-          <th></th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>

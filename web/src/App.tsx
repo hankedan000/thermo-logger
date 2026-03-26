@@ -204,6 +204,26 @@ function App() {
     }
   }, []);
 
+  const onSensorDelete = (sensorId: number) => {
+    fetch(`http://${baseUrl}/api/delete_sensor`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ sensorId }),
+    })
+    .then(resp => {
+      return resp.json();
+    })
+    .then(data => {
+      if (data.error.length > 0) {
+        alert(data.error);
+      } else {
+        fetchLatestSensorInfo();
+      }
+    });
+  };
+
   const handleNameChange = (sensorId: number, newName: string) => {
     fetch(`http://${baseUrl}/api/rename_sensor`, {
       method: "POST",
@@ -412,7 +432,9 @@ function App() {
         Sensors:
         <SensorStatusList
           sensors={sensors}
-          useFahrenheit={settings.useFahrenheit}/>
+          useFahrenheit={settings.useFahrenheit}
+          onDelete={onSensorDelete}
+          />
       </div>
 
       <div hidden={serverStatus.activeSessionId != null}>

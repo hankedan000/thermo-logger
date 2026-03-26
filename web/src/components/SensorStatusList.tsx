@@ -15,9 +15,10 @@ export interface SensorUpdateEntry {
 interface Props {
   sensors: SensorUpdateEntry[];
   useFahrenheit: boolean;
+  onDelete: (sensorId: number) => void;
 }
 
-export default function SensorStatusList({sensors, useFahrenheit}: Props) {
+export default function SensorStatusList({sensors, useFahrenheit, onDelete}: Props) {
   const formatTemp = (tempC: number | null) => {
     if ( ! tempC || isNaN(tempC) || tempC === BAD_TEMPERATURE_READING) {
       return "---";
@@ -35,6 +36,10 @@ export default function SensorStatusList({sensors, useFahrenheit}: Props) {
       <td>{formatTemp(sensor.lastTempC)}</td>
 
       <td>{sensor.available ? "🟢" : "🔴"}</td>
+
+      <td>
+        <button onClick={() => {onDelete(sensor.sensorId);}}>Delete</button>
+      </td>
     </tr>
   ));
 
@@ -46,6 +51,7 @@ export default function SensorStatusList({sensors, useFahrenheit}: Props) {
           <th>Current Name</th>
           <th>Current Reading ({useFahrenheit ? "°F" : "°C"})</th>
           <th>Connection Status</th>
+          <th>Actions</th>
         </tr>
       </thead>
       <tbody>

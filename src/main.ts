@@ -131,14 +131,20 @@ async function main() {
     res.json(sensors);
   });
 
-  app.get("/api/sessions", async (req, res) => {
-    const restResp = await thermoServer.getUI_RecordSessionInfos();
-    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
-  });
-
   app.post("/api/rename_sensor", async (req, res) => {
     const { sensorId, newName } = req.body;
     const restResp = await thermoServer.renameSensor(sensorId, newName);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.post("/api/delete_sensor", async (req, res) => {
+    const { sensorId } = req.body;
+    const restResp = await thermoServer.deleteSensor(sensorId);
+    res.status(restResp.status).json({error: restResp.error, result: restResp.result});
+  });
+
+  app.get("/api/sessions", async (req, res) => {
+    const restResp = await thermoServer.getUI_RecordSessionInfos();
     res.status(restResp.status).json({error: restResp.error, result: restResp.result});
   });
 

@@ -397,6 +397,53 @@ export class ThermoServer implements SamplerListener, UpdateListener {
         }
     }
 
+    public async deleteSensor(sensorId: number): Promise<REST_Response<void>> {
+        if ( ! this.prisma || ! this.samplerService) {
+            return {status: StatusCodes.CONFLICT, error: `Can't delete Sensors while server is '${this.state}'`};
+        } else if (isNaN(sensorId)) {
+            return {status: StatusCodes.BAD_REQUEST, error: "sensorId cannot be NaN"};
+        }
+
+        try {
+            // make sure the sensor isn't part of an active recording session
+            const activeSessionId = this.samplerService.getActiveSessionId();
+            if (activeSessionId) {
+                const sessionSensors = await this.prisma.sessionSensor.findMany({where: {sessionId: activeSessionId, sensorId: sensorId}});
+                if (sessionSensors.length > 0) {
+                    return {
+                        status: StatusCodes.CONFLICT,
+                        error: "Can't delete a sensor that's part of an active recording session. Stop the recording session first."
+                    };
+                }
+            }
+
+            // make sure the sensor isn't part of any past recording sessions.
+            // if so, we'll inform the user of which sessions include the sensor,
+            // and they can choose to delete those sessions if they want to proceed
+            // with deleting the sensor.
+            const sessionSensors = await this.prisma.sessionSensor.findMany({where: {sensorId: sensorId}});
+            if (sessionSensors.length > 0) {
+                const sessionIds = sessionSensors.map(ss => ss.sessionId);
+                const sessions = await this.prisma.recordSession.findMany({where: {id: {in: sessionIds}}});
+                const sessionNames = sessions.map(s => s.name).join(', ');
+                return {
+                    status: StatusCodes.CONFLICT,
+                    error: `Can't delete a sensor that's part of past recording sessions. Sensor is included in the following sessions: ${sessionNames}. Delete those sessions first if you want to proceed with deleting the sensor.`
+                };
+            }
+
+            // delete the sensor from the database, and remove it from our server state
+            console.log(`deleting sensorId='${sensorId}' ...`);
+            const deletedSensor = await this.prisma.sensor.delete({where: {id: sensorId}});
+            this.sensorStatusesByHwId.delete(deletedSensor.hardwareId);
+            console.log(`sensor deleted!`);
+            return {status: StatusCodes.OK, error: ""};
+        } catch (e: any) {
+            console.error('deleteSensor - unexpected error: ', e);
+            return {status: StatusCodes.INTERNAL_SERVER_ERROR, error: "Failed to delete sensor: " + e};
+        }
+    }
+
     public async exportSession(sessionId: number, useFahrenheit: boolean): Promise<REST_Response<void>> {
         if ( ! this.prisma) {
             return {status: StatusCodes.CONFLICT, error: `Can't export RecordSessions while server is '${this.state}'`};
