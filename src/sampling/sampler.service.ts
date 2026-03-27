@@ -1,6 +1,7 @@
 import { randomInt } from "node:crypto";
 import { PrismaClient, RecordSession, SampleGroup, Sensor } from "../generated/prisma/client";
 import { sensors, temperatureSync } from "ds18b20";
+import fs from "fs";
 
 const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 
@@ -8,16 +9,138 @@ const DEFAULT_SAMPLE_INTERVAL_MS: number = 5000;// 5s
 // we want to avoid using NaN here because some databases don't support storing NaN values.
 export const BAD_TEMPERATURE_READING = -1000.0;
 
+type SensorSampleCallback = () => Promise<number>;
+
+interface SensorSampler {
+  getHardwareId(): string;
+  isAvailable(): Promise<boolean>;
+  sample(): Promise<number>;
+}
+
+class FileBasedSensorSampler implements SensorSampler {
+  hardwareId: string;
+  filePath: string;
+  isCelcius: boolean;
+  scaleFactor: number;
+
+  constructor(hardwareId: string, filePath: string, isCelcius: boolean, scaleFactor: number) {
+    this.hardwareId = hardwareId;
+    this.filePath = filePath;
+    this.isCelcius = isCelcius;
+    this.scaleFactor = scaleFactor;
+  }
+
+  getHardwareId(): string {
+    return this.hardwareId;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return fs.existsSync(this.filePath);
+  }
+
+  async sample(): Promise<number> {
+    if ( ! await this.isAvailable()) {
+      return BAD_TEMPERATURE_READING;
+    } else {
+      return fs.promises.readFile(this.filePath, "utf-8").then((data) => {
+          const tempValue = parseInt(data);
+          if (isNaN(tempValue)) {
+            return BAD_TEMPERATURE_READING;
+          }
+          if (this.isCelcius) {
+            return tempValue * this.scaleFactor;
+          } else {
+            return (tempValue * this.scaleFactor - 32) * 5/9;
+          }
+        })
+        .catch((err) => {
+          return BAD_TEMPERATURE_READING;
+        });
+    }
+  }
+}
+
+class DS18B20_SensorSampler implements SensorSampler {
+  hardwareId: string;
+
+  constructor(hardwareId: string) {
+    this.hardwareId = hardwareId;
+  }
+
+  getHardwareId(): string {
+    return this.hardwareId;
+  }
+
+  async isAvailable(): Promise<boolean> {
+    return (await this.internalSample()) !== BAD_TEMPERATURE_READING;
+  }
+
+  async sample(): Promise<number> {
+    return this.internalSample();
+  }
+
+  private async internalSample(): Promise<number> {
+    let tempC = undefined;
+    try {
+      tempC = temperatureSync(this.hardwareId);
+    } catch (e) {
+      // leave tempC as undefined in error case
+    }
+
+    if (tempC == undefined || isNaN(tempC)) {
+      return BAD_TEMPERATURE_READING;
+    } else {
+      return tempC;
+    }
+  }
+}
+
+class SimulatedSensorSampler implements SensorSampler {
+  hardwareId: string;
+  failureRate: number;
+
+  constructor(hardwareId: string, failureRate: number) {
+    this.hardwareId = hardwareId;
+    this.failureRate = failureRate;
+  }
+
+  getHardwareId(): string {
+    return this.hardwareId;
+  }
+  
+  async isAvailable(): Promise<boolean> {
+    return true;
+  }
+
+  async sample(): Promise<number> {
+    if (Math.random() < this.failureRate) {
+      return BAD_TEMPERATURE_READING;
+    } else {
+      return randomInt(20, 26);
+    }
+  }
+}
+
+const RPI_CPU_TEMP_FILEPATH = "/sys/class/thermal/thermal_zone0/temp";
+const BUILTIN_SAMPLERS: SensorSampler[] = [
+  new FileBasedSensorSampler("builtin.rpi.cpu_temp", RPI_CPU_TEMP_FILEPATH, true, 0.001)
+];
+
 export interface SamplerListener {
   onSensorSearch(availableHwIds: string[]): void;
   onSensorSampled(sensor: Sensor, tempC: number): void;
   onCollectionComplete(): void;
 }
 
+interface RecordableSensor {
+  sensor: Sensor;
+  sampler: SensorSampler;
+}
+
 export class SamplerService {
   private interval: NodeJS.Timeout | undefined;
-  private allSensors: Sensor[] = [];
-  private sensorsToRecord: Sensor[] = [];
+  private allSensors: RecordableSensor[] = [];
+  private sensorsToRecord: RecordableSensor[] = [];
   private activeSessionId: number | undefined;
   private listeners: SamplerListener[] = [];
 
@@ -41,7 +164,32 @@ export class SamplerService {
   }
 
   public addDiscoveredSensor(newSensor: Sensor): void {
-    this.allSensors.push(newSensor);
+    // handle simulated sensors case first
+    if (newSensor.isSimulated) {
+      const FIALURE_RATE = 0.2;// 20% failure rate for simulated sensors
+      this.allSensors.push({
+        sensor: newSensor,
+        sampler: new SimulatedSensorSampler(newSensor.hardwareId, FIALURE_RATE)
+      });
+      return;
+    }
+
+    // check if the sensor matches any of our built-in samplers
+    for (const builtinSampler of BUILTIN_SAMPLERS) {
+      if (builtinSampler.getHardwareId() === newSensor.hardwareId) {
+        this.allSensors.push({
+          sensor: newSensor,
+          sampler: builtinSampler
+        });
+        return;
+      }
+    }
+
+    // otherwise, assume it's a ds18b20 sensor
+    this.allSensors.push({
+      sensor: newSensor,
+      sampler: new DS18B20_SensorSampler(newSensor.hardwareId)
+    });
   }
 
   public isRecording(): boolean {
@@ -74,7 +222,7 @@ export class SamplerService {
     }
 
     // get all the Sensor objects from the database for each sensorId
-    const tmpSensorsToRecord: Sensor[] = [];
+    const tmpSensorsToRecord: RecordableSensor[] = [];
     for (const sensorId of sensorIdsToRecord) {
       const sensor = await this.prisma.sensor.findUnique({
         where: {id: sensorId}
@@ -83,7 +231,18 @@ export class SamplerService {
       if ( ! sensor) {
         return `sensorId '${sensorId}' doens't exist in database`;
       }
-      tmpSensorsToRecord.push(sensor);
+
+      let recordable : undefined | RecordableSensor = undefined;
+      for (const s of this.allSensors) {
+        if (s.sensor.id === sensorId) {
+          recordable = s;
+          break;
+        }
+      }
+      if ( ! recordable) {
+        return `sensorId '${sensorId}' is not currently available to sample`;
+      }
+      tmpSensorsToRecord.push(recordable);
     }
 
     // create a new RecordSession in the database
@@ -96,12 +255,12 @@ export class SamplerService {
     });
 
     // snapshot all the Sensor's currentName values in the SessionSensor table
-    for (const sensor of tmpSensorsToRecord) {
+    for (const recordable of tmpSensorsToRecord) {
       await this.prisma.sessionSensor.create({
         data: {
           sessionId: recordSession.id,
-          sensorId: sensor.id,
-          name: sensor.currentName
+          sensorId: recordable.sensor.id,
+          name: recordable.sensor.currentName
         }
       });
     }
@@ -163,24 +322,46 @@ export class SamplerService {
         }
       });
     } else {
-      // not recording, so scan for ds18b20 temperature sensors
-      sensors((err: Error | null, ids: string[]) => {
-        for (const listener of this.listeners) {
-          listener.onSensorSearch(ids ? ids : []);
-        }
+      // not recording, so try scanning for new sensors ...
+      const foundSensorHwIds = new Set<string>();
+      
+      // try scanning for new ds18b20 temperature sensors
+      const ds18b20Promise = new Promise<string[]>((resolve) => {
+        sensors((err: Error | null, ids: string[]) => {
+          if (err) {
+            console.error(`error scanning for ds18b20 sensors: ${err}`);
+            ids = [];
+          }
+
+          resolve(ids);
+        });
       });
+      const ds18b20HwIds = await ds18b20Promise;
+      ds18b20HwIds.forEach((id) => foundSensorHwIds.add(id));
+
+      // try scanning for new builtin sensors (e.g. rpi cpu temp)
+      for (const builtinSampler of BUILTIN_SAMPLERS) {
+        if (await builtinSampler.isAvailable()) {
+          foundSensorHwIds.add(builtinSampler.getHardwareId());
+        }
+      }
+      
+      // notify all listeners of the new list of found sensors
+      for (const listener of this.listeners) {
+        listener.onSensorSearch(Array.from(foundSensorHwIds));
+      }
     }
 
     // iterate over all sensors and collect their tempartures
-    for (const sensor of sensorsToSample) {
-      var tempC = await this.sampleSensor(sensor);
+    for (const recordable of sensorsToSample) {
+      var tempC = await recordable.sampler.sample();
 
       if (this.activeSessionId && sampleGroup) {
         // store sensor samples
         await this.prisma.sample.create({
           data: {
             tempC: tempC,
-            sensorId: sensor.id,
+            sensorId: recordable.sensor.id,
             sessionId: this.activeSessionId,
             sampleGroupId: sampleGroup.id
           }
@@ -190,7 +371,7 @@ export class SamplerService {
       // notify all listeners of each new sensor reading
       for (const listener of this.listeners) {
         try {
-          listener.onSensorSampled(sensor, tempC);
+          listener.onSensorSampled(recordable.sensor, tempC);
         } catch (err: any) {
           // ignore error
         }
@@ -205,22 +386,5 @@ export class SamplerService {
         // ignore error
       }
     }
-  }
-
-  private async sampleSensor(sensor: Sensor): Promise<number> {
-      var tempC = BAD_TEMPERATURE_READING;
-      if (sensor.isSimulated) {
-        if (Math.random() > 0.1) {
-          // 10% chance to get an invalid reading
-          tempC = randomInt(20, 26);
-        }
-      } else {
-        try {
-          tempC = temperatureSync(sensor.hardwareId);
-        } catch (e) {
-          // leave tempC as BAD_TEMPERATURE_READING in error case
-        }
-      }
-      return tempC;
   }
 }
